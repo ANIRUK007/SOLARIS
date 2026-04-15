@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLARIS — Speech Data Collection</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.7/wavesurfer.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── CONFIG NOTE ──────────────────────────────────────────────────────────
+     Fill in your API keys in the CONFIG object in the <script> section below.
+     ANTHROPIC_API_KEY  → for Telugu transcription
+     GOOGLE_DRIVE_API_KEY → for Drive upload
+     GOOGLE_DRIVE_FOLDER_ID → the folder ID from your Drive folder URL
+  ─────────────────────────────────────────────────────────────────────────── */
+
+  :root {
+    --bg:        #0a0c0f;
+    --bg2:       #111418;
+    --bg3:       #181c22;
+    --border:    #1e242c;
+    --border2:   #2a3240;
+    --accent:    #00d4aa;
+    --accent2:   #0099ff;
+    --warn:      #ff4d4d;
+    --text:      #e8edf4;
+    --muted:     #5a6478;
+    --muted2:    #3a4254;
+    --rec:       #ff3b3b;
+    --mono:      'Space Mono', monospace;
+    --sans:      'Sora', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── HEADER ──────────────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .logo-name {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--accent);
+  }
+
+  .logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    max-width: 320px;
+    line-height: 1.4;
+  }
+
+  .session-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 6px;
+    letter-spacing: 1px;
+  }
+
+  /* ── MAIN LAYOUT ─────────────────────────────────────────────────────── */
+  main {
+    flex: 1;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px 60px;
+    width: 100%;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* ── METADATA PANEL ──────────────────────────────────────────────────── */
+  .meta-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 28px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1.5fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+
+  input[type="text"], input[type="number"], select {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+    appearance: none;
+  }
+
+  input:focus, select:focus {
+    border-color: var(--accent);
+  }
+
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6478' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  /* ── FILENAMES DISPLAY ───────────────────────────────────────────────── */
+  .filenames {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  .filename-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+  }
+
+  .filename-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-banjara { background: var(--accent); }
+  .dot-telugu  { background: var(--accent2); }
+  .dot-txt     { background: #f59e0b; }
+
+  .filename-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .filename-text.ready { color: var(--text); }
+
+  /* ── RECORDING SECTION ───────────────────────────────────────────────── */
+  .recordings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  .rec-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+    transition: border-color 0.3s;
+  }
+
+  .rec-card.recording {
+    border-color: var(--rec);
+    box-shadow: 0 0 0 1px rgba(255,59,59,0.15);
+  }
+
+  .rec-card.done {
+    border-color: rgba(0, 212, 170, 0.3);
+  }
+
+  .rec-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .rec-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.5px;
+  }
+
+  .rec-lang-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+
+  .badge-banjara {
+    background: rgba(0,212,170,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0,212,170,0.2);
+  }
+
+  .badge-telugu {
+    background: rgba(0,153,255,0.1);
+    color: var(--accent2);
+    border: 1px solid rgba(0,153,255,0.2);
+  }
+
+  /* ── RECORD BUTTON ───────────────────────────────────────────────────── */
+  .btn-record {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .btn-record.idle {
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border2);
+  }
+
+  .btn-record.idle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-record.active {
+    background: rgba(255,59,59,0.12);
+    color: var(--rec);
+    border: 1px solid rgba(255,59,59,0.3);
+  }
+
+  .btn-record:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .rec-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--rec);
+    animation: pulse 1s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  .timer {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--rec);
+    text-align: center;
+    margin-top: 10px;
+    height: 18px;
+  }
+
+  /* ── WAVEFORM ─────────────────────────────────────────────────────────── */
+  .waveform-wrap {
+    margin-top: 16px;
+    background: var(--bg3);
+    border-radius: 8px;
+    padding: 12px;
+    display: none;
+  }
+
+  .waveform-wrap.visible { display: block; }
+
+  .play-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .btn-play {
+    background: none;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .btn-play:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .playback-time {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  /* ── QUALITY SCORES ──────────────────────────────────────────────────── */
+  .quality-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: none;
+  }
+
+  .quality-panel.visible { display: block; }
+
+  .quality-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .quality-label {
+    font-size: 12px;
+    color: var(--muted);
+    width: 100px;
+    flex-shrink: 0;
+  }
+
+  .progress-track {
+    flex: 1;
+    height: 6px;
+    background: var(--bg3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease, background-color 0.4s;
+    width: 0%;
+  }
+
+  .progress-fill.good { background: var(--accent); }
+  .progress-fill.warn { background: var(--warn); }
+
+  .quality-score {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    width: 36px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .quality-warn {
+    margin-top: 12px;
+    color: var(--warn);
+    font-size: 13px;
+    display: none;
+  }
+
+  .quality-warn.visible { display: block; }
+
+  /* ── TRANSCRIPTION ───────────────────────────────────────────────────── */
+  .transcription-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    position: relative;
+  }
+
+  .transcription-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .transcription-status {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .status-spinner {
+    width: 10px; height: 10px;
+    border: 1.5px solid var(--muted2);
+    border-top-color: var(--accent2);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  .status-spinner.active { display: inline-block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  textarea {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    padding: 14px;
+    resize: vertical;
+    min-height: 90px;
+    outline: none;
+    line-height: 1.6;
+    transition: border-color 0.2s;
+  }
+
+  textarea:focus { border-color: var(--accent2); }
+  textarea::placeholder { color: var(--muted2); }
+
+  /* ── SUBMIT ──────────────────────────────────────────────────────────── */
+  .submit-area {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .btn-submit {
+    flex: 1;
+    padding: 16px;
+    border-radius: 10px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .btn-submit:disabled {
+    background: var(--bg3);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    cursor: not-allowed;
+  }
+
+  .btn-submit.ready {
+    background: var(--accent);
+    color: #000;
+  }
+
+  .btn-submit.ready:hover {
+    background: #00f0c0;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0,212,170,0.25);
+  }
+
+  .btn-submit.uploading {
+    background: rgba(0,212,170,0.15);
+    color: var(--accent);
+    border: 1px solid rgba(0,212,170,0.3);
+    cursor: wait;
+  }
+
+  /* ── SUCCESS BANNER ──────────────────────────────────────────────────── */
+  .success-banner {
+    background: rgba(0,212,170,0.08);
+    border: 1px solid rgba(0,212,170,0.25);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: none;
+    animation: slideIn 0.3s ease;
+  }
+
+  .success-banner.visible { display: block; }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .success-title {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .success-files {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 2;
+  }
+
+  /* ── ERROR MESSAGE ───────────────────────────────────────────────────── */
+  .error-msg {
+    color: var(--warn);
+    font-size: 12px;
+    margin-top: 8px;
+    display: none;
+  }
+
+  .error-msg.visible { display: block; }
+
+  /* ── MIC PERMISSION ERROR ────────────────────────────────────────────── */
+  .perm-error {
+    background: rgba(255,77,77,0.08);
+    border: 1px solid rgba(255,77,77,0.25);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--warn);
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  .perm-error.visible { display: block; }
+
+  /* ── FOOTER ──────────────────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    font-family: var(--mono);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-name">SOLARIS</div>
+    <div class="logo-sub">Speech-Oriented Language Archival &amp; Reasoning Infrastructure — Nexus Research Lab, MCET Hyderabad</div>
+  </div>
+  <div class="session-badge" id="session-badge">NO SESSION</div>
+</header>
+
+<main>
+
+  <!-- ── SUCCESS BANNER ── -->
+  <div class="success-banner" id="success-banner">
+    <div class="success-title">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6.5" stroke="#00d4aa"/><path d="M4 7l2 2 4-4" stroke="#00d4aa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Segment uploaded successfully
+    </div>
+    <div class="success-files" id="success-files"></div>
+  </div>
+
+  <!-- ── SECTION 1: METADATA ── -->
+  <div class="meta-panel">
+    <div class="section-label">Session Metadata</div>
+    <div class="meta-grid">
+      <div class="field-group">
+        <label class="field-label">Speaker ID</label>
+        <input type="text" id="speaker-id" placeholder="SPK001" maxlength="10">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Telugu Letter</label>
+        <select id="telugu-letter">
+          <option value="">— select —</option>
+          <!-- Vowels -->
+          <optgroup label="Vowels (అచ్చులు)">
+            <option value="అ">అ</option><option value="ఆ">ఆ</option>
+            <option value="ఇ">ఇ</option><option value="ఈ">ఈ</option>
+            <option value="ఉ">ఉ</option><option value="ఊ">ఊ</option>
+            <option value="ఋ">ఋ</option><option value="ఎ">ఎ</option>
+            <option value="ఏ">ఏ</option><option value="ఐ">ఐ</option>
+            <option value="ఒ">ఒ</option><option value="ఓ">ఓ</option>
+            <option value="ఔ">ఔ</option><option value="అం">అం</option>
+            <option value="అః">అః</option>
+          </optgroup>
+          <!-- Consonants -->
+          <optgroup label="Consonants (హల్లులు)">
+            <option value="క">క</option><option value="ఖ">ఖ</option>
+            <option value="గ">గ</option><option value="ఘ">ఘ</option>
+            <option value="ఙ">ఙ</option><option value="చ">చ</option>
+            <option value="ఛ">ఛ</option><option value="జ">జ</option>
+            <option value="ఝ">ఝ</option><option value="ఞ">ఞ</option>
+            <option value="ట">ట</option><option value="ఠ">ఠ</option>
+            <option value="డ">డ</option><option value="ఢ">ఢ</option>
+            <option value="ణ">ణ</option><option value="త">త</option>
+            <option value="థ">థ</option><option value="ద">ద</option>
+            <option value="ధ">ధ</option><option value="న">న</option>
+            <option value="ప">ప</option><option value="ఫ">ఫ</option>
+            <option value="బ">బ</option><option value="భ">భ</option>
+            <option value="మ">మ</option><option value="య">య</option>
+            <option value="ర">ర</option><option value="ల">ల</option>
+            <option value="వ">వ</option><option value="శ">శ</option>
+            <option value="ష">ష</option><option value="స">స</option>
+            <option value="హ">హ</option><option value="ళ">ళ</option>
+            <option value="క్ష">క్ష</option><option value="బండిర">బండిర</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Category</label>
+        <select id="segment-type">
+          <option value="">— select —</option>
+          <option value="name">Name</option>
+          <option value="place">Place</option>
+          <option value="animal">Animal</option>
+          <option value="object">Object</option>
+          <option value="time_word">Time Word</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Sentence No.</label>
+        <input type="number" id="sentence-num" placeholder="1" min="1" max="99">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Session No.</label>
+        <input type="number" id="session-num" placeholder="01" min="1" max="99">
+      </div>
+    </div>
+
+    <!-- Generated file names -->
+    <div class="filenames" id="filenames">
+      <div class="filename-row">
+        <div class="filename-dot dot-banjara"></div>
+        <div class="filename-text" id="fn-banjara">Fill fields to generate file names…</div>
+      </div>
+      <div class="filename-row">
+        <div class="filename-dot dot-telugu"></div>
+        <div class="filename-text" id="fn-telugu"></div>
+      </div>
+      <div class="filename-row">
+        <div class="filename-dot dot-txt"></div>
+        <div class="filename-text" id="fn-txt"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SECTION 2: RECORDINGS ── -->
+  <div class="section-label">Audio Recordings</div>
+  <div class="recordings-grid">
+
+    <!-- Banjara -->
+    <div class="rec-card" id="card-banjara">
+      <div class="rec-header">
+        <div class="rec-title">Banjara Recording</div>
+        <div class="rec-lang-badge badge-banjara">BANJARA</div>
+      </div>
+      <button class="btn-record idle" id="btn-banjara" onclick="toggleRecording('banjara')">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2.5" fill="currentColor"/></svg>
+        Start Recording
+      </button>
+      <div class="timer" id="timer-banjara"></div>
+      <div class="waveform-wrap" id="wave-banjara">
+        <div id="ws-banjara"></div>
+        <div class="play-bar">
+          <button class="btn-play" onclick="playWave('banjara')">▶ PLAY</button>
+          <button class="btn-play" onclick="reRecord('banjara')">↺ RE-RECORD</button>
+          <span class="playback-time" id="pt-banjara">0:00</span>
+        </div>
+      </div>
+      <div class="perm-error" id="perm-banjara">Microphone access denied. Please allow mic permission in your browser.</div>
+    </div>
+
+    <!-- Telugu -->
+    <div class="rec-card" id="card-telugu">
+      <div class="rec-header">
+        <div class="rec-title">Telugu Recording</div>
+        <div class="rec-lang-badge badge-telugu">TELUGU</div>
+      </div>
+      <button class="btn-record idle" id="btn-telugu" onclick="toggleRecording('telugu')">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2.5" fill="currentColor"/></svg>
+        Start Recording
+      </button>
+      <div class="timer" id="timer-telugu"></div>
+      <div class="waveform-wrap" id="wave-telugu">
+        <div id="ws-telugu"></div>
+        <div class="play-bar">
+          <button class="btn-play" onclick="playWave('telugu')">▶ PLAY</button>
+          <button class="btn-play" onclick="reRecord('telugu')">↺ RE-RECORD</button>
+          <span class="playback-time" id="pt-telugu">0:00</span>
+        </div>
+      </div>
+      <div class="perm-error" id="perm-telugu">Microphone access denied. Please allow mic permission in your browser.</div>
+    </div>
+  </div>
+
+  <!-- ── SECTION 3: QUALITY SCORES ── -->
+  <div class="quality-panel" id="quality-panel">
+    <div class="section-label">Audio Quality Analysis</div>
+    <div class="quality-row">
+      <div class="quality-label">Banjara</div>
+      <div class="progress-track"><div class="progress-fill" id="qfill-banjara"></div></div>
+      <div class="quality-score" id="qscore-banjara">—</div>
+    </div>
+    <div class="quality-row">
+      <div class="quality-label">Telugu</div>
+      <div class="progress-track"><div class="progress-fill" id="qfill-telugu"></div></div>
+      <div class="quality-score" id="qscore-telugu">—</div>
+    </div>
+    <div class="quality-warn" id="quality-warn">
+      ⚠ Audio quality is too low. Please re-record.
+    </div>
+  </div>
+
+  <!-- ── SECTION 4: TRANSCRIPTION ── -->
+  <div class="transcription-panel">
+    <div class="transcription-header">
+      <div class="section-label" style="margin:0">Telugu Transcription</div>
+      <div class="transcription-status">
+        <div class="status-spinner" id="transcription-spinner"></div>
+        <span id="transcription-status-text">Record Telugu audio to auto-transcribe</span>
+      </div>
+    </div>
+    <textarea id="transcription" placeholder="Telugu transcription will appear here automatically after recording. You can correct it manually." rows="3"></textarea>
+    <div class="error-msg" id="transcription-error">Transcription failed. You can type it manually.</div>
+  </div>
+
+  <!-- ── SECTION 5: SUBMIT ── -->
+  <div class="submit-area">
+    <button class="btn-submit" id="btn-submit" disabled onclick="handleSubmit()">
+      Submit &amp; Upload to Drive
+    </button>
+  </div>
+  <div class="error-msg visible" id="submit-hint" style="color:var(--muted);margin-top:10px;display:block;font-size:12px;">
+    Record both audio files to enable submission.
+  </div>
+  <div class="error-msg" id="upload-error">Upload failed. Check your API keys and internet connection.</div>
+
+</main>
+
+<footer>SOLARIS v0.1 — Nexus Research Lab · Methodist College of Engineering and Technology · Hyderabad</footer>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG — Fill in your keys here before using
+// ─────────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  ANTHROPIC_API_KEY:       'YOUR_ANTHROPIC_API_KEY',
+  GOOGLE_DRIVE_API_KEY:    'YOUR_GOOGLE_DRIVE_API_KEY',
+  GOOGLE_DRIVE_FOLDER_ID:  'YOUR_GOOGLE_DRIVE_FOLDER_ID',  // from the Drive URL
+  GOOGLE_OAUTH_TOKEN:      'YOUR_GOOGLE_OAUTH_TOKEN',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+const state = {
+  banjara: { mediaRecorder: null, chunks: [], blob: null, wavesurfer: null, timerInterval: null, seconds: 0, score: null },
+  telugu:  { mediaRecorder: null, chunks: [], blob: null, wavesurfer: null, timerInterval: null, seconds: 0, score: null },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE NAME GENERATION — updates live as user fills metadata
+// ─────────────────────────────────────────────────────────────────────────────
+function updateFileNames() {
+  const spk  = document.getElementById('speaker-id').value.trim() || 'SPK???';
+  const let_ = document.getElementById('telugu-letter').value     || '?';
+  const seg  = document.getElementById('segment-type').value      || '?';
+  const ses  = String(document.getElementById('session-num').value || '??').padStart(2,'0');
+
+  const base = `${spk}_${let_}_${seg}`;
+  const ready = spk !== 'SPK???' && let_ !== '?' && seg !== '?' && ses !== '??';
+
+  const fns = {
+    banjara: `${base}_banjara.wav`,
+    telugu:  `${base}_telugu.wav`,
+    txt:     `${base}_telugu.txt`,
+  };
+
+  ['banjara','telugu','txt'].forEach(k => {
+    const el = document.getElementById(`fn-${k}`);
+    el.textContent = fns[k];
+    el.classList.toggle('ready', ready);
+  });
+
+  document.getElementById('session-badge').textContent =
+    ready ? `SESSION ${ses} · ${spk}` : 'NO SESSION';
+}
+
+['speaker-id','telugu-letter','segment-type','session-num'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateFileNames);
+  document.getElementById(id).addEventListener('change', updateFileNames);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECORDING — toggle start / stop
+// ─────────────────────────────────────────────────────────────────────────────
+async function toggleRecording(lang) {
+  const s = state[lang];
+  if (s.mediaRecorder && s.mediaRecorder.state === 'recording') {
+    stopRecording(lang);
+  } else {
+    await startRecording(lang);
+  }
+}
+
+async function startRecording(lang) {
+  const s = state[lang];
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    document.getElementById(`perm-${lang}`).classList.remove('visible');
+
+    s.chunks = [];
+    s.blob = null;
+    s.seconds = 0;
+
+    // Hide waveform if re-recording
+    document.getElementById(`wave-${lang}`).classList.remove('visible');
+    document.getElementById(`card-${lang}`).classList.remove('done');
+
+    s.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    s.mediaRecorder.ondataavailable = e => s.chunks.push(e.data);
+    s.mediaRecorder.onstop = () => onRecordingStop(lang, stream);
+    s.mediaRecorder.start();
+
+    // UI
+    const btn = document.getElementById(`btn-${lang}`);
+    btn.className = 'btn-record active';
+    btn.innerHTML = '<div class="rec-dot"></div> Stop Recording';
+    document.getElementById(`card-${lang}`).classList.add('recording');
+
+    // Timer
+    updateTimer(lang);
+    s.timerInterval = setInterval(() => { s.seconds++; updateTimer(lang); }, 1000);
+
+  } catch(err) {
+    document.getElementById(`perm-${lang}`).classList.add('visible');
+  }
+}
+
+function updateTimer(lang) {
+  const s = state[lang];
+  const m = Math.floor(s.seconds / 60);
+  const sec = String(s.seconds % 60).padStart(2,'0');
+  document.getElementById(`timer-${lang}`).textContent = `● REC ${m}:${sec}`;
+}
+
+function stopRecording(lang) {
+  const s = state[lang];
+  clearInterval(s.timerInterval);
+  document.getElementById(`timer-${lang}`).textContent = '';
+  if (s.mediaRecorder && s.mediaRecorder.state === 'recording') {
+    s.mediaRecorder.stop();
+  }
+}
+
+async function onRecordingStop(lang, stream) {
+  const s = state[lang];
+  stream.getTracks().forEach(t => t.stop());
+
+  // Blob
+  s.blob = new Blob(s.chunks, { type: 'audio/webm' });
+
+  // UI reset
+  const btn = document.getElementById(`btn-${lang}`);
+  btn.className = 'btn-record idle';
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="2.5" fill="currentColor"/></svg> Start Recording';
+  document.getElementById(`card-${lang}`).classList.remove('recording');
+  document.getElementById(`card-${lang}`).classList.add('done');
+
+  // Waveform
+  showWaveform(lang);
+
+  // Quality
+  await analyseQuality(lang);
+
+  // If Telugu, auto-transcribe
+  if (lang === 'telugu') autoTranscribe();
+
+  checkSubmitReady();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WAVEFORM — WaveSurfer.js
+// ─────────────────────────────────────────────────────────────────────────────
+function showWaveform(lang) {
+  const s = state[lang];
+  const wrap = document.getElementById(`wave-${lang}`);
+  wrap.classList.add('visible');
+
+  if (s.wavesurfer) { s.wavesurfer.destroy(); s.wavesurfer = null; }
+
+  s.wavesurfer = WaveSurfer.create({
+    container: `#ws-${lang}`,
+    waveColor:     lang === 'banjara' ? '#00d4aa' : '#0099ff',
+    progressColor: lang === 'banjara' ? '#007755' : '#004488',
+    cursorColor:   'transparent',
+    height: 48,
+    barWidth: 2,
+    barGap: 1,
+    barRadius: 2,
+    backend: 'WebAudio',
+  });
+
+  const url = URL.createObjectURL(s.blob);
+  s.wavesurfer.load(url);
+
+  s.wavesurfer.on('timeupdate', t => {
+    const m = Math.floor(t/60);
+    const sec = String(Math.floor(t%60)).padStart(2,'0');
+    document.getElementById(`pt-${lang}`).textContent = `${m}:${sec}`;
+  });
+}
+
+function playWave(lang) {
+  state[lang].wavesurfer?.playPause();
+}
+
+function reRecord(lang) {
+  const s = state[lang];
+  if (s.wavesurfer) { s.wavesurfer.destroy(); s.wavesurfer = null; }
+  s.blob = null;
+  s.score = null;
+  document.getElementById(`wave-${lang}`).classList.remove('visible');
+  document.getElementById(`card-${lang}`).classList.remove('done');
+  document.getElementById(`qfill-${lang}`).style.width = '0%';
+  document.getElementById(`qscore-${lang}`).textContent = '—';
+  checkQualityPanel();
+  checkSubmitReady();
+  if (lang === 'telugu') {
+    document.getElementById('transcription').value = '';
+    document.getElementById('transcription-status-text').textContent = 'Record Telugu audio to auto-transcribe';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUALITY ANALYSIS — Web Audio API heuristics
+// ─────────────────────────────────────────────────────────────────────────────
+async function analyseQuality(lang) {
+  const s = state[lang];
+  if (!s.blob) return;
+
+  try {
+    const arrayBuffer = await s.blob.arrayBuffer();
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+    await audioCtx.close();
+
+    const data = decoded.getChannelData(0);
+    const duration = decoded.duration;
+
+    // 1. Duration score (0–25)
+    const durScore = duration >= 2 ? 25 : Math.round((duration / 2) * 25);
+
+    // 2. RMS volume score (0–25)
+    let sumSq = 0;
+    for (let i = 0; i < data.length; i++) sumSq += data[i] * data[i];
+    const rms = Math.sqrt(sumSq / data.length);
+    const volScore = Math.min(25, Math.round((rms / 0.1) * 25));
+
+    // 3. Clipping score (0–25): penalise samples near 1.0
+    let clips = 0;
+    for (let i = 0; i < data.length; i++) if (Math.abs(data[i]) > 0.95) clips++;
+    const clipRatio = clips / data.length;
+    const clipScore = Math.round(Math.max(0, 1 - clipRatio * 20) * 25);
+
+    // 4. SNR heuristic (0–25): ratio of loud frames to quiet frames
+    const frameSize = 256;
+    let loudFrames = 0, quietFrames = 0;
+    for (let i = 0; i < data.length; i += frameSize) {
+      const frame = data.slice(i, i + frameSize);
+      const frameRms = Math.sqrt(frame.reduce((a,v) => a + v*v, 0) / frame.length);
+      frameRms > 0.02 ? loudFrames++ : quietFrames++;
+    }
+    const snrScore = loudFrames + quietFrames > 0
+      ? Math.round((loudFrames / (loudFrames + quietFrames)) * 25) : 0;
+
+    const total = durScore + volScore + clipScore + snrScore;
+    s.score = total;
+
+    // Update UI
+    checkQualityPanel();
+    const fill = document.getElementById(`qfill-${lang}`);
+    fill.style.width = `${total}%`;
+    fill.className = `progress-fill ${total >= 50 ? 'good' : 'warn'}`;
+    document.getElementById(`qscore-${lang}`).textContent = `${total}%`;
+
+    // Warn check
+    const bothDone = state.banjara.score !== null && state.telugu.score !== null;
+    const warn = document.getElementById('quality-warn');
+    if (bothDone) {
+      const tooLow = state.banjara.score < 50 || state.telugu.score < 50;
+      warn.classList.toggle('visible', tooLow);
+    }
+
+  } catch(e) {
+    console.warn('Quality analysis failed:', e);
+    state[lang].score = 75; // fallback
+  }
+}
+
+function checkQualityPanel() {
+  const either = state.banjara.blob || state.telugu.blob;
+  document.getElementById('quality-panel').classList.toggle('visible', !!either);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO TRANSCRIPTION — Anthropic Claude API
+// ─────────────────────────────────────────────────────────────────────────────
+async function autoTranscribe() {
+  const s = state.telugu;
+  if (!s.blob) return;
+
+  const spinner = document.getElementById('transcription-spinner');
+  const statusText = document.getElementById('transcription-status-text');
+  const errEl = document.getElementById('transcription-error');
+
+  spinner.classList.add('active');
+  statusText.textContent = 'Transcribing…';
+  errEl.classList.remove('visible');
+
+  try {
+    // Convert blob to base64
+    const arrayBuffer = await s.blob.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+    const base64 = btoa(binary);
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': CONFIG.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'audio/webm', data: base64 },
+            },
+            {
+              type: 'text',
+              text: 'This is a Telugu speech recording. Please transcribe it accurately to Telugu script text only. Return only the transcription, no explanation.',
+            },
+          ],
+        }],
+      }),
+    });
+
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    const text = data.content?.map(b => b.text || '').join('') || '';
+    document.getElementById('transcription').value = text.trim();
+    statusText.textContent = 'Transcription complete — edit if needed';
+
+  } catch(err) {
+    console.warn('Transcription error:', err);
+    statusText.textContent = 'Transcription failed';
+    errEl.classList.add('visible');
+  } finally {
+    spinner.classList.remove('active');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBMIT READINESS CHECK
+// ─────────────────────────────────────────────────────────────────────────────
+function checkSubmitReady() {
+  const bothRecorded = state.banjara.blob && state.telugu.blob;
+  const qualityOk = (state.banjara.score === null || state.banjara.score >= 50)
+                 && (state.telugu.score === null  || state.telugu.score  >= 50);
+
+  const btn = document.getElementById('btn-submit');
+  const hint = document.getElementById('submit-hint');
+
+  if (bothRecorded && qualityOk) {
+    btn.disabled = false;
+    btn.className = 'btn-submit ready';
+    hint.style.display = 'none';
+  } else {
+    btn.disabled = true;
+    btn.className = 'btn-submit';
+    hint.style.display = 'block';
+    if (bothRecorded && !qualityOk) {
+      hint.textContent = 'Audio quality is too low. Please re-record.';
+      hint.style.color = 'var(--warn)';
+    } else {
+      hint.textContent = 'Record both audio files to enable submission.';
+      hint.style.color = 'var(--muted)';
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOOGLE DRIVE UPLOAD
+// ─────────────────────────────────────────────────────────────────────────────
+async function uploadToDrive(blob, fileName, mimeType, parentFolderId) {
+  // Step 1: Create metadata
+  const metadata = {
+    name: fileName,
+    parents: [parentFolderId],
+  };
+
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.append('file', new File([blob], fileName, { type: mimeType }));
+
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&key=${CONFIG.GOOGLE_DRIVE_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${CONFIG.GOOGLE_OAUTH_TOKEN}` },
+      body: form,
+    }
+  );
+
+  if (!res.ok) throw new Error(`Drive upload failed: ${res.status}`);
+  return await res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HANDLE SUBMIT
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleSubmit() {
+  const spk  = document.getElementById('speaker-id').value.trim();
+  const let_ = document.getElementById('telugu-letter').value;
+  const seg  = document.getElementById('segment-type').value;
+  const ses  = String(document.getElementById('session-num').value).padStart(2,'0');
+
+  if (!spk || !let_ || !seg || !ses) {
+    alert('Please fill in all session metadata fields before submitting.');
+    return;
+  }
+
+  const base = `${spk}_${let_}_${seg}`;
+  const names = {
+    banjara: `${base}_banjara.wav`,
+    telugu:  `${base}_telugu.wav`,
+    txt:     `${base}_telugu.txt`,
+  };
+
+  const transcriptionText = document.getElementById('transcription').value;
+  const txtBlob = new Blob([transcriptionText], { type: 'text/plain' });
+
+  const btn = document.getElementById('btn-submit');
+  btn.className = 'btn-submit uploading';
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  document.getElementById('upload-error').classList.remove('visible');
+
+  try {
+    const folderId = CONFIG.GOOGLE_DRIVE_FOLDER_ID;
+
+    // Upload all three files
+    await Promise.all([
+      uploadToDrive(state.banjara.blob, names.banjara, 'audio/wav', folderId),
+      uploadToDrive(state.telugu.blob,  names.telugu,  'audio/wav', folderId),
+      uploadToDrive(txtBlob,            names.txt,     'text/plain', folderId),
+    ]);
+
+    // Success
+    const banner = document.getElementById('success-banner');
+    banner.classList.add('visible');
+    document.getElementById('success-files').innerHTML =
+      `${names.banjara}<br>${names.telugu}<br>${names.txt}`;
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Reset — keep Speaker ID and Session Number
+    resetInterface();
+
+  } catch(err) {
+    console.error('Upload error:', err);
+    document.getElementById('upload-error').classList.add('visible');
+    btn.className = 'btn-submit ready';
+    btn.disabled = false;
+    btn.textContent = 'Submit & Upload to Drive';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESET — clears recordings, keeps Speaker ID and Session Number
+// ─────────────────────────────────────────────────────────────────────────────
+function resetInterface() {
+  ['banjara','telugu'].forEach(lang => reRecord(lang));
+
+  document.getElementById('telugu-letter').value = '';
+  document.getElementById('segment-type').value = '';
+  document.getElementById('transcription').value = '';
+  document.getElementById('transcription-status-text').textContent = 'Record Telugu audio to auto-transcribe';
+  document.getElementById('transcription-error').classList.remove('visible');
+  document.getElementById('quality-panel').classList.remove('visible');
+  document.getElementById('quality-warn').classList.remove('visible');
+  document.getElementById('upload-error').classList.remove('visible');
+
+  // Reset btn
+  const btn = document.getElementById('btn-submit');
+  btn.className = 'btn-submit';
+  btn.disabled = true;
+  btn.textContent = 'Submit & Upload to Drive';
+
+  document.getElementById('submit-hint').textContent = 'Record both audio files to enable submission.';
+  document.getElementById('submit-hint').style.color = 'var(--muted)';
+  document.getElementById('submit-hint').style.display = 'block';
+
+  updateFileNames();
+}
+
+// Init
+updateFileNames();
+</script>
+</body>
+</html>
