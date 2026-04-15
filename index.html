@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SOLARIS — Data Collection Interface</title>
+<script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg-deep:   #060d18;
+  --bg-panel:  #0b1522;
+  --bg-card:   #0f1c30;
+  --bg-input:  #081018;
+  --border:    #1a2d48;
+  --border-hi: #254570;
+  --amber:     #f5a623;
+  --amber-glow:rgba(245,166,35,.12);
+  --teal:      #2dd4bf;
+  --red:       #ef4444;
+  --green:     #22c55e;
+  --blue:      #60a5fa;
+  --txt-1:     #ddeaf8;
+  --txt-2:     #6a92b8;
+  --txt-3:     #344f6a;
+  --mono:      'IBM Plex Mono',monospace;
+  --sans:      'IBM Plex Sans',sans-serif;
+  --r: 6px; --rl: 10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg-deep);color:var(--txt-1);font-family:var(--sans);min-height:100vh;padding-bottom:60px;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(45,212,191,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(45,212,191,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* HEADER */
+header{position:relative;z-index:1;background:linear-gradient(180deg,#0a1420,transparent);border-bottom:1px solid var(--border);padding:18px 32px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.logo-ring{width:40px;height:40px;border:2px solid var(--amber);border-radius:50%;display:grid;place-items:center;flex-shrink:0}
+.logo-dot{width:10px;height:10px;background:var(--amber);border-radius:50%;animation:blink 2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.55)}}
+.hdr-text h1{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:.14em;color:var(--amber);text-transform:uppercase}
+.hdr-text p{font-size:11px;color:var(--txt-2);margin-top:2px;letter-spacing:.03em}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.sess-pill{display:flex;align-items:center;gap:7px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.22);border-radius:99px;padding:5px 14px;font-family:var(--mono);font-size:11px;color:var(--green)}
+.pill-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:blink 1.5s ease-in-out infinite}
+
+/* LAYOUT */
+main{position:relative;z-index:1;max-width:980px;margin:0 auto;padding:28px 22px;display:flex;flex-direction:column;gap:22px}
+
+/* CARDS */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--rl);overflow:hidden}
+.card-hdr{background:var(--bg-panel);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:10px}
+.card-hdr h2{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-2)}
+.badge{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3);background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:2px 8px}
+.card-body{padding:20px}
+
+/* FORM FIELDS */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-2)}
+.field input,.field select{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);color:var(--txt-1);font-family:var(--mono);font-size:14px;padding:10px 12px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none;width:100%}
+.field input:focus,.field select:focus{border-color:var(--amber)}
+.field input::placeholder{color:var(--txt-3)}
+.field select option{background:var(--bg-panel)}
+
+/* FILENAMES */
+.fn-box{margin-top:18px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:7px}
+.fn-lbl{font-family:var(--mono);font-size:10px;color:var(--txt-3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px}
+.fn-row{display:flex;align-items:center;gap:10px}
+.fn-type{font-family:var(--mono);font-size:10px;color:var(--txt-3);width:28px;flex-shrink:0}
+.fn-name{font-family:var(--mono);font-size:12px;color:var(--teal);word-break:break-all}
+
+/* SAVE PATH */
+.path-box{margin-top:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;display:flex;align-items:flex-start;gap:10px}
+.path-icon{font-size:12px;color:var(--txt-3);flex-shrink:0;margin-top:1px}
+.path-text{font-family:var(--mono);font-size:11px;color:var(--txt-2);word-break:break-all;line-height:1.6}
+.path-sub{font-size:10px;color:var(--txt-3);margin-top:3px}
+
+/* RECORDING */
+.rec-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:620px){.rec-grid{grid-template-columns:1fr}}
+.rec-panel{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--rl);padding:16px;display:flex;flex-direction:column;gap:12px}
+.rec-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-2);display:flex;align-items:center;gap:8px}
+.lang-tag{font-size:10px;border-radius:4px;padding:2px 7px;font-weight:500}
+.lang-tag.bnj{background:rgba(239,68,68,.15);color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.lang-tag.tel{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.25)}
+.btn-rec{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px;border-radius:var(--r);border:2px solid var(--border-hi);background:transparent;color:var(--txt-1);font-family:var(--mono);font-size:13px;font-weight:500;letter-spacing:.06em;cursor:pointer;transition:all .2s}
+.btn-rec:hover:not(:disabled){border-color:var(--amber);color:var(--amber);background:var(--amber-glow)}
+.btn-rec.active{border-color:var(--red);background:rgba(239,68,68,.1);color:var(--red);animation:pulseBorder 1s ease-in-out infinite}
+.btn-rec:disabled{opacity:.38;cursor:not-allowed}
+@keyframes pulseBorder{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}50%{box-shadow:0 0 0 4px rgba(239,68,68,.15)}}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:var(--txt-3);flex-shrink:0;transition:background .2s}
+.btn-rec.active .rec-dot{background:var(--red);animation:blink .7s ease-in-out infinite}
+.rec-timer{font-family:var(--mono);font-size:11px;color:var(--txt-3);min-height:14px;transition:color .2s}
+.rec-timer.on{color:var(--red)}
+.wave-wrap{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);height:54px;overflow:hidden;display:none}
+.wave-wrap.show{display:block}
+.btn-rerec{font-family:var(--mono);font-size:11px;color:var(--txt-3);background:none;border:none;cursor:pointer;text-decoration:underline;text-underline-offset:3px;display:none;width:fit-content}
+.btn-rerec.show{display:inline}
+.btn-rerec:hover{color:var(--amber)}
+
+/* TRANSCRIPTION */
+.trans-row{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--txt-3);margin-bottom:8px;min-height:18px}
+.spinner{width:12px;height:12px;border:2px solid var(--border-hi);border-top-color:var(--amber);border-radius:50%;animation:spin .6s linear infinite;display:none;flex-shrink:0}
+.spinner.show{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+#trans-text{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r);color:var(--txt-1);font-family:var(--mono);font-size:14px;line-height:1.7;padding:12px 14px;resize:vertical;min-height:90px;outline:none;transition:border-color .2s}
+#trans-text:focus{border-color:var(--amber)}
+#trans-text::placeholder{color:var(--txt-3)}
+.api-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--txt-2);flex-wrap:wrap}
+.chip{padding:4px 10px;border-radius:99px;font-size:10px;font-weight:500;cursor:pointer;transition:all .2s;border:1px solid var(--border);background:transparent;color:var(--txt-3)}
+.chip.on{border-color:var(--amber);background:var(--amber-glow);color:var(--amber)}
+
+/* CONFIDENCE */
+.conf-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:500px){.conf-grid{grid-template-columns:1fr}}
+.conf-block{display:flex;flex-direction:column;gap:8px}
+.conf-hdr{display:flex;align-items:center;justify-content:space-between}
+.conf-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt-2)}
+.conf-score{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--txt-3);transition:color .4s}
+.conf-score.pass{color:var(--green)}
+.conf-score.fail{color:var(--red)}
+.prog-track{height:7px;background:var(--bg-input);border:1px solid var(--border);border-radius:99px;overflow:hidden}
+.prog-bar{height:100%;width:0%;border-radius:99px;background:var(--txt-3);transition:width .85s cubic-bezier(.25,1,.5,1),background .4s}
+.prog-bar.pass{background:var(--green)}
+.prog-bar.fail{background:var(--red)}
+.conf-metrics{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.cm{font-family:var(--mono);font-size:10px;color:var(--txt-3);background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:2px 8px}
+.cm.ok{color:var(--green);border-color:rgba(34,197,94,.25)}
+.cm.bad{color:var(--red);border-color:rgba(239,68,68,.25)}
+
+/* ALERTS */
+.alert{border-radius:var(--r);padding:10px 14px;font-family:var(--mono);font-size:12px;line-height:1.5;display:none;margin-top:8px}
+.alert.show{display:block}
+.alert.err{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.28);color:var(--red)}
+.alert.warn{background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.28);color:var(--amber)}
+.alert.ok{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.22);color:var(--green)}
+
+/* SUBMIT */
+.submit-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+#btn-submit{padding:13px 38px;border-radius:var(--r);border:2px solid var(--border-hi);background:transparent;color:var(--txt-3);font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;cursor:not-allowed;transition:all .3s;display:flex;align-items:center;gap:10px}
+#btn-submit.ready{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.08);cursor:pointer;box-shadow:0 0 24px rgba(34,197,94,.1)}
+#btn-submit.ready:hover{background:rgba(34,197,94,.16)}
+#btn-submit.uploading{border-color:var(--amber);color:var(--amber);cursor:not-allowed}
+#btn-submit.done{border-color:var(--teal);color:var(--teal);cursor:not-allowed}
+#success-panel{background:rgba(34,197,94,.05);border:1px solid rgba(34,197,94,.2);border-radius:var(--rl);padding:20px;display:none;margin-top:14px}
+#success-panel.show{display:block}
+#success-panel h3{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--green);margin-bottom:12px;letter-spacing:.06em}
+.sfile{font-family:var(--mono);font-size:12px;color:var(--teal);display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.sfile::before{content:'✓';color:var(--green)}
+#upload-note{font-family:var(--mono);font-size:11px;color:var(--txt-3);margin-top:10px}
+
+/* SERVER STATUS */
+.srv-pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;border-radius:99px;padding:3px 10px;border:1px solid}
+.srv-pill.ok{color:var(--green);border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.07)}
+.srv-pill.err{color:var(--red);border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.07)}
+.srv-pill.checking{color:var(--amber);border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.07)}
+.srv-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+</style>
+</head>
+<body>
+
+<script>
+// ── CONFIG — always points to port 3001 ──────────────────────
+const CONFIG = {
+  activeSTT:    'sarvam',
+  sarvamApiKey: 'sk_uvh21ey3_qGqyAzTXNH3HsP9l8K7y3CA6',
+  sarvamModel:  'saarika:v2.5',
+  groqApiKey:   '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',
+  groqModel:    'whisper-large-v3-turbo',
+  serverUrl:    'http://127.0.0.1:3001',   // ← always use 127.0.0.1 (not localhost)
+};
+
+const DEFAULTS = { spk: 'SPK001', letter: 'అ', seg: 'name', sess: '01' };
+function loadMeta(k) { return localStorage.getItem('solaris_' + k) ?? DEFAULTS[k]; }
+function saveMeta(k, v) { localStorage.setItem('solaris_' + k, v); }
+</script>
+
+<!-- HEADER -->
+<header>
+  <div class="logo-ring"><div class="logo-dot"></div></div>
+  <div class="hdr-text">
+    <h1>SOLARIS</h1>
+    <p>Speech-Oriented Language Archival &amp; Reasoning Infrastructure · Nexus Research Lab, MCET Hyderabad</p>
+  </div>
+  <div class="hdr-right">
+    <span class="srv-pill checking" id="srvPill">
+      <span class="srv-dot"></span><span id="srvLbl">checking…</span>
+    </span>
+    <div class="sess-pill"><span class="pill-dot"></span>SESSION ACTIVE</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- STEP 1 · METADATA -->
+  <div class="card">
+    <div class="card-hdr"><span>⊞</span><h2>Session Metadata</h2><span class="badge">STEP 1 · REQUIRED</span></div>
+    <div class="card-body">
+      <div class="fgrid">
+        <div class="field">
+          <label for="spk-id">Speaker ID</label>
+          <input id="spk-id" type="text" maxlength="20" oninput="onMetaChange('spk',this.value);updateFn()"/>
+        </div>
+        <div class="field">
+          <label for="tel-letter">Telugu Letter</label>
+          <select id="tel-letter" onchange="onMetaChange('letter',this.value);updateFn()"></select>
+        </div>
+        <div class="field">
+          <label for="seg-type">Segment Type</label>
+          <select id="seg-type" onchange="onMetaChange('seg',this.value);updateFn()">
+            <option value="name">Name</option>
+            <option value="place">Place</option>
+            <option value="animal">Animal</option>
+            <option value="object">Object</option>
+            <option value="time_word">Time Word</option>
+            <option value="sentence_1">Sentence 1</option>
+            <option value="sentence_2">Sentence 2</option>
+            <option value="sentence_3">Sentence 3</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sess-num">Session Number</label>
+          <input id="sess-num" type="number" min="1" max="999" oninput="onMetaChange('sess',this.value);updateFn()"/>
+        </div>
+      </div>
+      <div class="fn-box">
+        <div class="fn-lbl">Generated Filenames</div>
+        <div class="fn-row"><span class="fn-type">BNJ</span><span class="fn-name" id="fn-b">—</span></div>
+        <div class="fn-row"><span class="fn-type">TEL</span><span class="fn-name" id="fn-t">—</span></div>
+        <div class="fn-row"><span class="fn-type">TXT</span><span class="fn-name" id="fn-x">—</span></div>
+      </div>
+      <div class="path-box">
+        <span class="path-icon">📁</span>
+        <div>
+          <div class="path-text" id="savePath">—</div>
+          <div class="path-sub">Files will be saved to this path via the Node.js server on port 3001.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2 · RECORDING -->
+  <div class="card">
+    <div class="card-hdr"><span>🎙</span><h2>Audio Recording</h2><span class="badge">STEP 2</span></div>
+    <div class="card-body">
+      <div class="rec-grid">
+        <div class="rec-panel">
+          <div class="rec-title">Banjara Recording <span class="lang-tag bnj">BNJ</span></div>
+          <button class="btn-rec" id="btnB" onclick="toggleRec('B')">
+            <span class="rec-dot"></span><span id="lblB">Start Recording</span>
+          </button>
+          <div class="rec-timer" id="timerB">00:00</div>
+          <div class="wave-wrap" id="wrapB"><div id="waveB"></div></div>
+          <button class="btn-rerec" id="rerecB" onclick="reRec('B')">↺ Re-record</button>
+          <div class="alert err" id="errB"></div>
+        </div>
+        <div class="rec-panel">
+          <div class="rec-title">Telugu Recording <span class="lang-tag tel">TEL</span></div>
+          <button class="btn-rec" id="btnT" onclick="toggleRec('T')">
+            <span class="rec-dot"></span><span id="lblT">Start Recording</span>
+          </button>
+          <div class="rec-timer" id="timerT">00:00</div>
+          <div class="wave-wrap" id="wrapT"><div id="waveT"></div></div>
+          <button class="btn-rerec" id="rerecT" onclick="reRec('T')">↺ Re-record</button>
+          <div class="alert err" id="errT"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSCRIPTION -->
+  <div class="card">
+    <div class="card-hdr"><span>✦</span><h2>Telugu Transcription</h2><span class="badge">AUTO + EDITABLE</span></div>
+    <div class="card-body">
+      <div class="trans-row">
+        <div class="spinner" id="tspinner"></div>
+        <span id="tstatus">Waiting for Telugu audio…</span>
+      </div>
+      <textarea id="trans-text" placeholder="Telugu transcription appears here after recording. You may edit it before submitting."></textarea>
+      <div class="api-row">
+        <span>STT Engine:</span>
+        <button class="chip on" id="chipSarvam" onclick="selectSTT('sarvam')">Sarvam (te-IN)</button>
+        <button class="chip"    id="chipGroq"   onclick="selectSTT('groq')">Groq Whisper</button>
+      </div>
+      <div class="alert err" id="errTrans"></div>
+    </div>
+  </div>
+
+  <!-- QUALITY -->
+  <div class="card">
+    <div class="card-hdr"><span>◈</span><h2>Audio Quality Analysis</h2><span class="badge">AUTO · ML GRADING</span></div>
+    <div class="card-body">
+      <div class="conf-grid">
+        <div class="conf-block">
+          <div class="conf-hdr"><span class="conf-label">Banjara</span><span class="conf-score" id="scoreB">—</span></div>
+          <div class="prog-track"><div class="prog-bar" id="barB"></div></div>
+          <div class="conf-metrics" id="metricsB"></div>
+        </div>
+        <div class="conf-block">
+          <div class="conf-hdr"><span class="conf-label">Telugu</span><span class="conf-score" id="scoreT">—</span></div>
+          <div class="prog-track"><div class="prog-bar" id="barT"></div></div>
+          <div class="conf-metrics" id="metricsT"></div>
+        </div>
+      </div>
+      <div class="alert warn" id="warnQuality">⚠ Audio quality is too low. Please re-record before submitting.</div>
+    </div>
+  </div>
+
+  <!-- STEP 3 · SUBMIT -->
+  <div class="card">
+    <div class="card-hdr"><span>↑</span><h2>Save to Local Dataset</h2><span class="badge">STEP 3</span></div>
+    <div class="card-body">
+      <div class="submit-row">
+        <button id="btn-submit" disabled onclick="handleSubmit()">
+          <span id="submitIcon">⊘</span>
+          <span id="submitLbl">Awaiting Valid Recordings</span>
+        </button>
+      </div>
+      <div class="alert err" id="errSubmit"></div>
+      <div class="alert err" id="errSave"></div>
+      <div id="success-panel">
+        <h3>✓ Files Saved Successfully</h3>
+        <div id="sfiles"></div>
+        <div id="upload-note"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Telugu letter inventory ───────────────────────────────────────────────────
+const LETTERS = [
+  'అ','ఆ','ఇ','ఈ','ఉ','ఊ','ఋ','ఎ','ఏ','ఐ','ఒ','ఓ','ఔ','అం','అః',
+  'క','ఖ','గ','ఘ','ఙ','చ','ఛ','జ','ఝ','ఞ',
+  'ట','ఠ','డ','ఢ','ణ','త','థ','ద','ధ','న',
+  'ప','ఫ','బ','భ','మ','య','ర','ల','వ',
+  'శ','ష','స','హ','ళ','క్ష','జ్ఞ'
+];
+
+(()=>{
+  const sel = document.getElementById('tel-letter');
+  LETTERS.forEach(l => { const o = document.createElement('option'); o.value = o.textContent = l; sel.appendChild(o); });
+})();
+
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('spk-id').value     = loadMeta('spk');
+  document.getElementById('tel-letter').value = loadMeta('letter');
+  document.getElementById('seg-type').value   = loadMeta('seg');
+  document.getElementById('sess-num').value   = loadMeta('sess');
+  selectSTT(CONFIG.activeSTT);
+  updateFn();
+  checkServer();
+});
+
+function onMetaChange(k, v) { saveMeta(k, v); }
+
+// ── Server health check ───────────────────────────────────────────────────────
+async function checkServer() {
+  const pill = document.getElementById('srvPill');
+  const lbl  = document.getElementById('srvLbl');
+  try {
+    const r = await fetch(CONFIG.serverUrl + '/health', { signal: AbortSignal.timeout(4000) });
+    const j = await r.json();
+    if (r.ok && j.status === 'ok') {
+      pill.className  = 'srv-pill ok';
+      lbl.textContent = 'server online :3001';
+    } else { throw new Error(); }
+  } catch {
+    pill.className  = 'srv-pill err';
+    lbl.textContent = 'server offline — run: node server.js';
+  }
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const S = {
+  blobs:   { B: null,  T: null  },
+  ws:      { B: null,  T: null  },
+  mr:      { B: null,  T: null  },
+  ti:      { B: null,  T: null  },
+  elapsed: { B: 0,     T: 0     },
+  scores:  { B: null,  T: null  },
+  isRec:   { B: false, T: false },
+  done:    { B: false, T: false },
+  stt: CONFIG.activeSTT,
+};
+
+// ── Filename / path generator ─────────────────────────────────────────────────
+function updateFn() {
+  const spk  = document.getElementById('spk-id').value.trim()  || 'SPK???';
+  const lttr = document.getElementById('tel-letter').value      || '?';
+  const seg  = document.getElementById('seg-type').value        || 'segment';
+  const sess = String(document.getElementById('sess-num').value || '??').padStart(2, '0');
+  const base = `${spk}_${lttr}_${seg}`;
+
+  document.getElementById('fn-b').textContent = `${base}_banjara.wav`;
+  document.getElementById('fn-t').textContent = `${base}_telugu.wav`;
+  document.getElementById('fn-x').textContent = `${base}_telugu.txt`;
+
+  const relPath  = `speakers\\${spk}\\sessions\\session_${sess}\\${lttr}`;
+  const fullPath = `C:\\Users\\asus\\OneDrive\\Desktop\\SOLARIS_user_interface\\dataset\\${relPath}`;
+  document.getElementById('savePath').textContent = fullPath;
+  window._meta = { spk, lttr, seg, sess, base, relPath };
+}
+
+// ── Recording ─────────────────────────────────────────────────────────────────
+async function toggleRec(s) { S.isRec[s] ? stopRec(s) : await startRec(s); }
+
+async function startRec(s) {
+  clearAlt('err' + s);
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch(e) {
+    showAlt('err' + s, 'Microphone access denied. Allow microphone permission and try again.', 'err');
+    return;
+  }
+
+  const chunks = [];
+  const mr = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+  mr.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mr.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    const wav = await toWav(new Blob(chunks, { type: 'audio/webm' }));
+    S.blobs[s] = wav; S.done[s] = true;
+    renderWave(s, wav);
+    document.getElementById('rerec' + s).classList.add('show');
+    if (s === 'T') doTranscribe();
+    if (S.done.B && S.done.T) doGrade();
+  };
+  mr.start(200);
+  S.mr[s] = mr; S.isRec[s] = true; S.elapsed[s] = 0;
+
+  document.getElementById('btn' + s).classList.add('active');
+  document.getElementById('lbl' + s).textContent = 'Stop Recording';
+  document.getElementById('wrap' + s).classList.remove('show');
+  document.getElementById('rerec' + s).classList.remove('show');
+  S.ti[s] = setInterval(() => {
+    S.elapsed[s]++;
+    const t = document.getElementById('timer' + s);
+    t.textContent = `${String(Math.floor(S.elapsed[s]/60)).padStart(2,'0')}:${String(S.elapsed[s]%60).padStart(2,'0')}`;
+    t.classList.add('on');
+  }, 1000);
+}
+
+function stopRec(s) {
+  if (!S.isRec[s]) return;
+  clearInterval(S.ti[s]);
+  S.mr[s].stop(); S.isRec[s] = false;
+  document.getElementById('btn' + s).classList.remove('active');
+  document.getElementById('lbl' + s).textContent = 'Start Recording';
+  document.getElementById('timer' + s).classList.remove('on');
+}
+
+function reRec(s) {
+  S.blobs[s] = null; S.done[s] = false; S.scores[s] = null;
+  document.getElementById('wrap'  + s).classList.remove('show');
+  document.getElementById('rerec' + s).classList.remove('show');
+  document.getElementById('timer' + s).textContent = '00:00';
+  setScore(s, null, []);
+  if (s === 'T') {
+    document.getElementById('trans-text').value = '';
+    document.getElementById('tstatus').textContent = 'Waiting for Telugu audio…';
+  }
+  document.getElementById('warnQuality').classList.remove('show');
+  updateSubmit();
+}
+
+// ── WAV encoding ──────────────────────────────────────────────────────────────
+async function toWav(blob) {
+  const ab  = await blob.arrayBuffer();
+  const ctx = new AudioContext({ sampleRate: 16000 });
+  let dec;
+  try { dec = await ctx.decodeAudioData(ab); } catch { ctx.close(); return blob; }
+  ctx.close();
+  return new Blob([encodeWav(dec.getChannelData(0), dec.sampleRate)], { type: 'audio/wav' });
+}
+
+function encodeWav(s, sr) {
+  const bps=2, br=sr*bps, dl=s.length*bps;
+  const buf=new ArrayBuffer(44+dl), v=new DataView(buf);
+  const ws=(o,x)=>{ for(let i=0;i<x.length;i++) v.setUint8(o+i,x.charCodeAt(i)); };
+  ws(0,'RIFF'); v.setUint32(4,36+dl,true);
+  ws(8,'WAVE'); ws(12,'fmt '); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sr,true); v.setUint32(28,br,true);
+  v.setUint16(32,bps,true); v.setUint16(34,16,true);
+  ws(36,'data'); v.setUint32(40,dl,true);
+  let o=44;
+  for(let i=0;i<s.length;i++,o+=2){
+    const x=Math.max(-1,Math.min(1,s[i]));
+    v.setInt16(o,x<0?x*0x8000:x*0x7FFF,true);
+  }
+  return buf;
+}
+
+// ── Waveform ──────────────────────────────────────────────────────────────────
+function renderWave(s, blob) {
+  document.getElementById('wrap' + s).classList.add('show');
+  if (S.ws[s]) { S.ws[s].destroy(); S.ws[s] = null; }
+  S.ws[s] = WaveSurfer.create({
+    container: '#wave' + s,
+    waveColor: '#2a4870', progressColor: '#f5a623',
+    height: 52, barWidth: 2, barGap: 1, barRadius: 2,
+    normalize: true, interact: true,
+  });
+  S.ws[s].loadBlob(blob);
+}
+
+// ── STT ───────────────────────────────────────────────────────────────────────
+function selectSTT(e) {
+  S.stt = e;
+  document.getElementById('chipSarvam').classList.toggle('on', e === 'sarvam');
+  document.getElementById('chipGroq').classList.toggle('on',   e === 'groq');
+}
+
+async function doTranscribe() {
+  const blob = S.blobs.T; if (!blob) return;
+  clearAlt('errTrans');
+  document.getElementById('tstatus').textContent =
+    S.stt === 'sarvam' ? 'Transcribing with Sarvam Saarika (te-IN)…' : 'Transcribing with Groq Whisper (te)…';
+  document.getElementById('tspinner').classList.add('show');
+  try {
+    const txt = S.stt === 'sarvam' ? await sttSarvam(blob) : await sttGroq(blob);
+    document.getElementById('trans-text').value   = txt;
+    document.getElementById('tstatus').textContent = `✓ Done — edit if needed`;
+  } catch(e) {
+    showAlt('errTrans', `Transcription failed: ${e.message}. Type manually.`, 'err');
+    document.getElementById('tstatus').textContent = 'Transcription failed — enter manually';
+  } finally {
+    document.getElementById('tspinner').classList.remove('show');
+  }
+}
+
+async function sttSarvam(blob) {
+  if (!CONFIG.sarvamApiKey || CONFIG.sarvamApiKey.startsWith('YOUR_')) throw new Error('Sarvam API key not set');
+  const fd = new FormData();
+  fd.append('file', blob, 'audio.wav');
+  fd.append('model', CONFIG.sarvamModel);
+  fd.append('language_code', 'te-IN');
+  fd.append('with_timestamps', 'false');
+  const r = await fetch('https://api.sarvam.ai/speech-to-text', {
+    method: 'POST', headers: { 'api-subscription-key': CONFIG.sarvamApiKey }, body: fd,
+  });
+  if (!r.ok) throw new Error(`Sarvam ${r.status}: ${await r.text()}`);
+  const d = await r.json();
+  return d.transcript || d.text || '';
+}
+
+async function sttGroq(blob) {
+  if (!CONFIG.groqApiKey || CONFIG.groqApiKey.startsWith('YOUR_')) throw new Error('Groq API key not set');
+  const fd = new FormData();
+  fd.append('file', new File([blob], 'audio.wav', { type: 'audio/wav' }));
+  fd.append('model', CONFIG.groqModel);
+  fd.append('language', 'te');
+  fd.append('response_format', 'json');
+  const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST', headers: { 'Authorization': `Bearer ${CONFIG.groqApiKey}` }, body: fd,
+  });
+  if (!r.ok) throw new Error(`Groq ${r.status}: ${await r.text()}`);
+  const d = await r.json();
+  return d.text || '';
+}
+
+// ── Quality grading ───────────────────────────────────────────────────────────
+async function doGrade() {
+  await gradeOne('B');
+  await gradeOne('T');
+  checkSubmitReady();
+}
+
+async function gradeOne(s) {
+  const blob = S.blobs[s]; if (!blob) return;
+  const ab   = await blob.arrayBuffer();
+  const actx = new OfflineAudioContext(1, 1, 44100);
+  let dec;
+  try { dec = await actx.decodeAudioData(ab.slice(0)); }
+  catch { setScore(s, 0, [{ l: 'Decode fail', ok: false }]); return; }
+  const d = dec.getChannelData(0), dur = dec.duration, sr = dec.sampleRate;
+
+  const durOk = dur >= 2.0;
+  const durSc = durOk ? 25 : Math.round((dur / 2.0) * 25);
+
+  let ss = 0; for (let i = 0; i < d.length; i++) ss += d[i] * d[i];
+  const rms = Math.sqrt(ss / d.length);
+  const rmsOk = rms > 0.01 && rms < 0.95;
+  const rmsSc = rmsOk ? 30 : (rms <= 0.01 ? Math.round((rms / 0.01) * 30) : 15);
+
+  let clip = 0; for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) >= 0.99) clip++;
+  const clipR = clip / d.length;
+  const clipOk = clipR < 0.01;
+  const clipSc = clipOk ? 25 : Math.max(0, Math.round((1 - clipR / 0.05) * 25));
+
+  const noiseN = Math.min(Math.floor(sr * 0.1), d.length);
+  let noiseS = 0; for (let i = 0; i < noiseN; i++) noiseS += d[i] * d[i];
+  const nP = noiseS / noiseN || 0.0001, sP = ss / d.length || 0.0001;
+  const snr = 10 * Math.log10(sP / nP);
+  const snrOk = snr > 10;
+  const snrSc = snrOk ? 20 : Math.max(0, Math.round((snr / 10) * 20));
+
+  const total = Math.min(100, durSc + rmsSc + clipSc + snrSc);
+  S.scores[s] = total;
+  setScore(s, total, [
+    { l: `Dur ${dur.toFixed(1)}s`,          ok: durOk  },
+    { l: `Vol ${(rms*100).toFixed(0)}%`,    ok: rmsOk  },
+    { l: `Clip ${(clipR*100).toFixed(1)}%`, ok: clipOk },
+    { l: `SNR ${snr.toFixed(0)}dB`,         ok: snrOk  },
+  ]);
+}
+
+function setScore(s, total, metrics) {
+  if (total === null) {
+    document.getElementById('score'+s).textContent = '—';
+    document.getElementById('score'+s).className   = 'conf-score';
+    document.getElementById('bar'  +s).style.width = '0%';
+    document.getElementById('bar'  +s).className   = 'prog-bar';
+    document.getElementById('metrics'+s).innerHTML  = '';
+    return;
+  }
+  const pass = total >= 50;
+  document.getElementById('score'+s).textContent = total + '%';
+  document.getElementById('score'+s).className   = 'conf-score ' + (pass ? 'pass' : 'fail');
+  document.getElementById('bar'  +s).style.width = total + '%';
+  document.getElementById('bar'  +s).className   = 'prog-bar ' + (pass ? 'pass' : 'fail');
+  document.getElementById('metrics'+s).innerHTML  =
+    metrics.map(m => `<span class="cm ${m.ok?'ok':'bad'}">${m.l}</span>`).join('');
+}
+
+function checkSubmitReady() {
+  const sb = S.scores.B, st = S.scores.T;
+  if (sb === null || st === null) return;
+  document.getElementById('warnQuality').classList.toggle('show', !(sb >= 50 && st >= 50));
+  updateSubmit();
+}
+
+function updateSubmit() {
+  const bothDone = S.done.B && S.done.T;
+  const bothPass = S.scores.B !== null && S.scores.T !== null && S.scores.B >= 50 && S.scores.T >= 50;
+  const btn  = document.getElementById('btn-submit');
+  const lbl  = document.getElementById('submitLbl');
+  const icon = document.getElementById('submitIcon');
+  if (bothDone && bothPass) {
+    btn.className = 'ready'; btn.disabled = false;
+    icon.textContent = '↑'; lbl.textContent = 'Save to Local Dataset';
+  } else if (bothDone) {
+    btn.className = ''; btn.disabled = true;
+    icon.textContent = '⚠'; lbl.textContent = 'Re-record Low Quality Audio';
+  } else {
+    btn.className = ''; btn.disabled = true;
+    icon.textContent = '⊘'; lbl.textContent = 'Awaiting Valid Recordings';
+  }
+}
+
+// ── Submit — save via local server ────────────────────────────────────────────
+async function handleSubmit() {
+  clearAlt('errSubmit'); clearAlt('errSave');
+  document.getElementById('success-panel').classList.remove('show');
+
+  const m = window._meta;
+  if (!m || !m.spk || m.spk === 'SPK???' || !m.lttr || m.lttr === '?') {
+    showAlt('errSubmit', 'Fill in all metadata fields before submitting.', 'err');
+    return;
+  }
+
+  if (!S.blobs.B || !S.blobs.T) {
+    showAlt('errSubmit', 'Both recordings are required.', 'err');
+    return;
+  }
+
+  const btn = document.getElementById('btn-submit');
+  const lbl = document.getElementById('submitLbl');
+  btn.className = 'uploading'; btn.disabled = true;
+  lbl.textContent = 'Saving files…';
+
+  try {
+    const txt = document.getElementById('trans-text').value;
+    const fd  = new FormData();
+    fd.append('folderPath', m.relPath);
+    fd.append('banjara',    S.blobs.B, `${m.base}_banjara.wav`);
+    fd.append('telugu',     S.blobs.T, `${m.base}_telugu.wav`);
+    fd.append('transcript', new Blob([txt], { type: 'text/plain' }), `${m.base}_telugu.txt`);
+    fd.append('bnj_name',   `${m.base}_banjara.wav`);
+    fd.append('tel_name',   `${m.base}_telugu.wav`);
+    fd.append('txt_name',   `${m.base}_telugu.txt`);
+
+    // POST to the explicit IP to avoid any proxy or service-worker intercept
+    const saveUrl = CONFIG.serverUrl + '/save';
+    console.log('[SUBMIT] POSTing to', saveUrl);
+
+    const r = await fetch(saveUrl, { method: 'POST', body: fd });
+
+    // Read body once
+    const raw = await r.text();
+    console.log('[SUBMIT] Response', r.status, raw);
+
+    if (!r.ok) throw new Error(`Server returned ${r.status}: ${raw}`);
+
+    let data;
+    try { data = JSON.parse(raw); } catch { throw new Error('Server response was not JSON: ' + raw); }
+    if (!data.success) throw new Error(data.error || 'Unknown server error');
+
+    btn.className = 'done'; lbl.textContent = 'Saved ✓';
+    document.getElementById('sfiles').innerHTML =
+      data.files.map(f => `<div class="sfile">${f}</div>`).join('');
+    document.getElementById('upload-note').textContent = `Saved to: ${data.savedTo}`;
+    document.getElementById('success-panel').classList.add('show');
+
+    setTimeout(() => resetForm(m.spk, document.getElementById('sess-num').value), 3500);
+
+  } catch(e) {
+    console.error('[SUBMIT ERR]', e);
+    showAlt('errSave',
+      `Save error: ${e.message}\n\nMake sure "node server.js" is running and the server pill shows green.`,
+      'err');
+    btn.className = 'ready'; btn.disabled = false;
+    lbl.textContent = 'Retry Save';
+  }
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetForm(keepSpk, keepSess) {
+  ['B','T'].forEach(s => {
+    S.blobs[s]=null; S.done[s]=false; S.scores[s]=null; S.isRec[s]=false;
+    if (S.ws[s]) { S.ws[s].destroy(); S.ws[s]=null; }
+    document.getElementById('wrap' +s).classList.remove('show');
+    document.getElementById('rerec'+s).classList.remove('show');
+    document.getElementById('timer'+s).textContent = '00:00';
+    document.getElementById('timer'+s).classList.remove('on');
+    setScore(s, null, []);
+    clearAlt('err'+s);
+  });
+  document.getElementById('trans-text').value  = '';
+  document.getElementById('tstatus').textContent = 'Waiting for Telugu audio…';
+  clearAlt('errTrans');
+  document.getElementById('spk-id').value   = keepSpk;
+  document.getElementById('sess-num').value = keepSess;
+  document.getElementById('tel-letter').value = '';
+  document.getElementById('seg-type').value   = '';
+  updateFn();
+  document.getElementById('warnQuality').classList.remove('show');
+  document.getElementById('success-panel').classList.remove('show');
+  clearAlt('errSubmit'); clearAlt('errSave');
+  updateSubmit();
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────────
+function showAlt(id, msg, type) {
+  const el = document.getElementById(id); if (!el) return;
+  el.textContent = msg; el.className = `alert ${type} show`;
+}
+function clearAlt(id) {
+  const el = document.getElementById(id); if (!el) return;
+  el.textContent = ''; el.className = 'alert';
+}
+</script>
+</body>
+</html>
