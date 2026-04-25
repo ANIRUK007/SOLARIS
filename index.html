@@ -209,7 +209,6 @@ function saveMeta(k, v) { localStorage.setItem('solaris_' + k, v); }
         <div class="field">
           <label for="seg-type">Segment Type</label>
           <select id="seg-type" onchange="onMetaChange('seg',this.value);updateFn()">
-            <option value="name">Name</option>
             <option value="place">Place</option>
             <option value="animal">Animal</option>
             <option value="object">Object</option>
@@ -221,6 +220,7 @@ function saveMeta(k, v) { localStorage.setItem('solaris_' + k, v); }
             <option value="object">Prepositions</option>
             <option value="object">Conjunctions</option>
             <option value="object">Interjections</option>
+            <option value="object">Relations</option>
             <option value="object">Time</option>
             <option value="object">Numbers</option>
             <option value="object">Sentences</option>
