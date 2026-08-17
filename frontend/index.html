@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stemwork — Audio Stem Splitter</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Stemwork</span>
+    </div>
+    <p class="tagline">Split any recording into foreground, background and noise.</p>
+  </header>
+
+  <main class="layout">
+
+    <!-- INPUT PANEL -->
+    <section class="panel input-panel" aria-label="Audio input">
+      <h2 class="panel-title">01 · Bring in audio</h2>
+
+      <div id="dropzone" class="dropzone">
+        <p class="dropzone-label">Drop a WAV or MP3 here, or</p>
+        <label class="btn btn-primary" for="fileInput">Choose file</label>
+        <input id="fileInput" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" hidden />
+        <p id="fileName" class="file-name"></p>
+      </div>
+
+      <div class="divider"><span>or</span></div>
+
+      <div class="record-block">
+        <button id="recordBtn" class="btn btn-outline" type="button">
+          <span class="dot" aria-hidden="true"></span> Record from microphone
+        </button>
+        <span id="recordTimer" class="record-timer">00:00</span>
+      </div>
+
+      <div class="thresholds">
+        <label class="slider-label" for="noiseThreshold">
+          Noise sensitivity <span id="noiseThresholdVal">0.35</span>
+        </label>
+        <input id="noiseThreshold" type="range" min="0.05" max="0.9" step="0.01" value="0.35" />
+        <p class="hint">Higher = more content gets classified as noise.</p>
+
+        <label class="slider-label" for="fgPercentile">
+          Foreground cutoff <span id="fgPercentileVal">70</span>th pct
+        </label>
+        <input id="fgPercentile" type="range" min="30" max="95" step="1" value="70" />
+        <p class="hint">Higher = only the loudest content counts as foreground.</p>
+      </div>
+
+      <button id="processBtn" class="btn btn-primary btn-wide" type="button" disabled>
+        Split audio
+      </button>
+
+      <div id="statusLine" class="status-line" aria-live="polite"></div>
+    </section>
+
+    <!-- RESULTS PANEL -->
+    <section class="panel results-panel" aria-label="Separated stems">
+      <h2 class="panel-title">02 · Your stems</h2>
+
+      <div id="emptyState" class="empty-state">
+        <p>Upload or record something, then split it — your three stems will line up here.</p>
+      </div>
+
+      <div id="stemList" class="stem-list" hidden>
+
+        <article class="stem-card" data-stem="foreground">
+          <div class="stem-head">
+            <span class="stem-swatch swatch-foreground" aria-hidden="true"></span>
+            <h3>Foreground</h3>
+            <a class="stem-download" data-stem="foreground" href="#" download>Download</a>
+          </div>
+          <canvas class="waveform" data-stem="foreground" height="64"></canvas>
+          <audio class="stem-audio" data-stem="foreground" controls></audio>
+        </article>
+
+        <article class="stem-card" data-stem="background">
+          <div class="stem-head">
+            <span class="stem-swatch swatch-background" aria-hidden="true"></span>
+            <h3>Background</h3>
+            <a class="stem-download" data-stem="background" href="#" download>Download</a>
+          </div>
+          <canvas class="waveform" data-stem="background" height="64"></canvas>
+          <audio class="stem-audio" data-stem="background" controls></audio>
+        </article>
+
+        <article class="stem-card" data-stem="noise">
+          <div class="stem-head">
+            <span class="stem-swatch swatch-noise" aria-hidden="true"></span>
+            <h3>Noise</h3>
+            <a class="stem-download" data-stem="noise" href="#" download>Download</a>
+          </div>
+          <canvas class="waveform" data-stem="noise" height="64"></canvas>
+          <audio class="stem-audio" data-stem="noise" controls></audio>
+        </article>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footnote">
+    <p>Threshold-based STFT separation · runs entirely on your own FastAPI backend · <code>GET /api/health</code></p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
