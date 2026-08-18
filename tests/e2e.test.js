@@ -36,6 +36,24 @@ function findChromium() {
   }
 }
 
+/**
+ * Poll a predicate in the page.
+ *
+ * Playwright's waitForFunction evaluates a string, which the app's content
+ * security policy refuses — it forbids unsafe-eval precisely so an injected
+ * script cannot run. Rather than turning the policy off for the tests, which
+ * would stop them exercising what real browsers enforce, this polls with
+ * page.evaluate.
+ */
+async function waitFor(page, fn, arg, timeout = 20000) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    if (await page.evaluate(fn, arg)) return true;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${fn.toString().slice(0, 80)}`);
+    await page.waitForTimeout(120);
+  }
+}
+
 const walk = (dir) => fs.existsSync(dir)
   ? fs.readdirSync(dir, { withFileTypes: true })
       .flatMap(e => e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)])
@@ -91,6 +109,10 @@ const walk = (dir) => fs.existsSync(dir)
     check('the app opens on the account screen, not the portal',
       await page.isVisible('#screen-auth') && !(await page.isVisible('#screen-portal')));
 
+    check('the username field does not suggest a real-looking value',
+      (await page.getAttribute('#auth-user', 'placeholder')) === 'Choose a username',
+      await page.getAttribute('#auth-user', 'placeholder'));
+
     check('with no accounts yet, sign-up is offered rather than sign-in',
       (await page.textContent('#btnAuthSubmit')).includes('Create'),
       await page.textContent('#btnAuthSubmit'));
@@ -109,9 +131,9 @@ const walk = (dir) => fs.existsSync(dir)
     await page.fill('#auth-user', 'fieldworker');
     await page.fill('#auth-pass', 'short');
     await page.click('#btnAuthSubmit');
-    await page.waitForFunction(() => !document.querySelector('#authErr').hidden, null, { timeout: 10000 });
+    await waitFor(page, () => !document.querySelector('#authErr').hidden, null, 10000);
     check('a weak password is rejected with a readable reason',
-      /8 characters/i.test(await page.textContent('#authErr')),
+      /10 characters/i.test(await page.textContent('#authErr')),
       await page.textContent('#authErr'));
 
     // That rejection is a deliberate 400, which the browser logs as a failed
@@ -120,7 +142,7 @@ const walk = (dir) => fs.existsSync(dir)
       errors.splice(errors.indexOf(e), 1);
     }
 
-    await page.fill('#auth-pass', 'fieldpass2024');
+    await page.fill('#auth-pass', 'field-pass-2026');
     await page.fill('#auth-name', 'Field Worker');
     await page.click('#btnAuthSubmit');
     await page.waitForSelector('#screen-portal:not([hidden])', { timeout: 15000 });
@@ -228,12 +250,10 @@ const walk = (dir) => fs.existsSync(dir)
       await page.click('#btnRecord');
       // Wait for the stream to actually open before asking it to stop —
       // getUserMedia resolves asynchronously.
-      await page.waitForFunction(() => window.__solarisGame.isRec, null, { timeout: 15000 });
+      await waitFor(page, () => window.__solarisGame && window.__solarisGame.isRec, null, 15000);
       await page.waitForTimeout(1600);
       await page.click('#btnRecord');
-      await page.waitForFunction(
-        () => document.querySelector('#sheet').classList.contains('show'),
-        null, { timeout: 20000 });
+      await waitFor(page, () => document.querySelector('#sheet').classList.contains('show'), null, 20000);
       return page.evaluate(() => document.querySelector('#sheet').className);
     };
 
@@ -283,8 +303,11 @@ const walk = (dir) => fs.existsSync(dir)
     await page.waitForTimeout(600);
     check('skipping advances and marks the segment',
       await page.evaluate(() => document.querySelectorAll('#segbar .seg.skipped').length) === 1);
-    check('skipping resets the streak',
-      (await page.textContent('#streakVal')).trim() === '0');
+    // A day streak is about turning up, not about never saying "no word for
+    // this" — so a skip must not break it.
+    check('skipping does not break the day streak',
+      (await page.textContent('#streakVal')).trim() === '1',
+      await page.textContent('#streakVal'));
 
     // ── Closing part-way must not celebrate ──────────────────────────────────
     await page.click('#btnQuit');
@@ -441,7 +464,7 @@ const walk = (dir) => fs.existsSync(dir)
       const r = await window.SolarisAuth.fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'second', password: 'secondpass2024', displayName: 'Second Voice' }),
+        body: JSON.stringify({ username: 'second', password: 'quiet-harbour-2026', displayName: 'Second Voice' }),
       });
       return r.status;
     });
@@ -453,7 +476,7 @@ const walk = (dir) => fs.existsSync(dir)
     await other.evaluate(() => localStorage.clear());
     await other.reload({ waitUntil: 'networkidle' });
     await other.fill('#auth-user', 'second');
-    await other.fill('#auth-pass', 'secondpass2024');
+    await other.fill('#auth-pass', 'quiet-harbour-2026');
     await other.click('#btnAuthSubmit');
     await other.waitForSelector('#screen-portal:not([hidden])', { timeout: 15000 });
 

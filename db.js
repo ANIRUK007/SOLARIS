@@ -67,7 +67,12 @@ class FileDb {
   }
 
   async findContributor(username) {
-    return this._users.users[username] || null;
+    const row = this._users.users[username];
+    // A copy, not the stored object. Handing out the live row let a caller
+    // see its own write reflected before it had asked for it, which the
+    // Supabase backend would never do — two backends that behave differently
+    // is a bug that only shows up in production.
+    return row ? JSON.parse(JSON.stringify(row)) : null;
   }
 
   async createContributor(row) {
@@ -98,7 +103,7 @@ class FileDb {
     }
 
     writeJson(this.usersFile, this._users, 0o600);
-    return row;
+    return JSON.parse(JSON.stringify(row));
   }
 
   async contributorHistory(username) {
@@ -338,11 +343,17 @@ const FIELDS = [
   ['createdAt', 'created_at'],
   ['lastLoginAt', 'last_login_at'],
   ['lastContributionAt', 'last_contribution_at'],
+  ['lastContributionDay', 'last_contribution_day'],
+  ['tokenEpoch', 'token_epoch'],
+  ['failedLogins', 'failed_logins'],
+  ['lockedUntil', 'locked_until'],
 ];
 
 function toRow(obj) {
   const out = {};
   for (const [app, col] of FIELDS) {
+    // undefined means "not mentioned"; null means "clear this column", which
+    // is how a lockout is lifted.
     if (obj[app] !== undefined) out[col] = obj[app];
   }
   return out;
@@ -353,6 +364,9 @@ function fromRow(row) {
   for (const [app, col] of FIELDS) {
     if (row[col] !== undefined && row[col] !== null) out[app] = row[col];
   }
+  // Dates come back as full timestamps from some drivers; the streak only
+  // cares about the day part.
+  if (out.lastContributionDay) out.lastContributionDay = String(out.lastContributionDay).slice(0, 10);
   // The application groups the counters; the table keeps them as columns.
   out.stats = {
     xp: row.xp || 0,

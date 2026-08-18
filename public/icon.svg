@@ -1,21 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SOLARIS">
-  <!-- Indigo ground, the colour of the cloth -->
-  <rect width="512" height="512" rx="112" fill="#1a1038"/>
+  <rect width="512" height="512" rx="112" fill="#0b0420"/>
 
-  <!-- Crimson and marigold rings, the embroidered concentric motif -->
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#e4322b" stroke-width="16"/>
-  <circle cx="256" cy="256" r="112" fill="none" stroke="#ffc24d" stroke-width="10" stroke-dasharray="20 14"/>
-
-  <!-- The mirror at the centre, catching light -->
-  <circle cx="256" cy="256" r="58" fill="#dfe6f2"/>
-  <circle cx="238" cy="238" r="20" fill="#ffffff" opacity="0.9"/>
-  <circle cx="256" cy="256" r="58" fill="none" stroke="#0d0620" stroke-width="6"/>
-
-  <!-- Four mirrors on the seam -->
-  <g fill="#dfe6f2">
-    <circle cx="256" cy="66"  r="15"/>
-    <circle cx="256" cy="446" r="15"/>
-    <circle cx="66"  cy="256" r="15"/>
-    <circle cx="446" cy="256" r="15"/>
-  </g>
+  <!-- A semicolon: the mark that holds two clauses together rather than ending
+       one — which is what a pivot language does between Banjara and Telugu. -->
+  <circle cx="256" cy="176" r="42" fill="#ffc93c"/>
+  <circle cx="256" cy="312" r="42" fill="#ff2e63"/>
+  <path d="M256 350c0 44-18 76-52 100"
+        fill="none" stroke="#ff2e63" stroke-width="42" stroke-linecap="round"/>
 </svg>

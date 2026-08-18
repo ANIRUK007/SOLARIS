@@ -45,7 +45,9 @@ test('GET /health reports status and configured engines', async () => {
   const j = await r.json();
   assert.strictEqual(r.status, 200);
   assert.strictEqual(j.status, 'ok');
-  assert.strictEqual(j.basePath, DATASET);
+  // The dataset path is deliberately no longer advertised to an anonymous
+  // caller; it is a detail about the deployment.
+  assert.ok(!('basePath' in j), 'health leaks the dataset path');
   // No keys were set for this run, so both engines report unavailable.
   assert.deepStrictEqual(j.engines, { sarvam: false, groq: false });
 });

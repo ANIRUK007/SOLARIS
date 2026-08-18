@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/dsp.test.js && node tests/wiring.test.js && node tests/words.test.js && node tests/supabase.test.js && node tests/auth.test.js && node tests/server.test.js",
+    "test": "node tests/dsp.test.js && node tests/wiring.test.js && node tests/words.test.js && node tests/supabase.test.js && node tests/security.test.js && node tests/auth.test.js && node tests/server.test.js",
     "certs": "node scripts/make-certs.js",
     "test:e2e": "node tests/e2e.test.js",
     "migrate": "node scripts/migrate-to-supabase.js",

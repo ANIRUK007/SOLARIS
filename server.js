@@ -22,6 +22,7 @@
 const { Auth, levelFor, xpForLevel } = require('./auth.js');
 const { Words } = require('./words.js');
 const { open: openDb } = require('./db.js');
+const { RateLimiter, headers: securityHeaders, clientAddress } = require('./security.js');
 
 const http  = require('http');
 const https = require('https');
@@ -55,6 +56,42 @@ const SSL_CERT = process.env.SSL_CERT || path.join(__dirname, 'certs', 'cert.pem
 const SSL_KEY  = process.env.SSL_KEY  || path.join(__dirname, 'certs', 'key.pem');
 
 const MAX_BODY_BYTES = 60 * 1024 * 1024;   // one session is a few hundred KB; this is slack
+const MAX_JSON_BYTES = 256 * 1024;         // no JSON this app sends is larger
+
+// Only honour X-Forwarded-For when actually behind a proxy. Trusting it by
+// default would hand anyone a fresh rate-limit quota per request.
+const TRUST_PROXY = process.env.SOLARIS_TRUST_PROXY === 'true';
+
+// Whether a stranger may create their own account. Open by default so
+// contributors can start without a gatekeeper; set to 'false' for a closed
+// study where a lead creates every account.
+const OPEN_REGISTRATION = process.env.SOLARIS_OPEN_REGISTRATION !== 'false';
+// An optional shared code, for when registration should be open to the people
+// who were given the code and nobody else.
+const INVITE_CODE = process.env.SOLARIS_INVITE_CODE || '';
+
+// Guessing a password is only worth trying if you get unlimited attempts.
+const limits = {
+  login: new RateLimiter({ windowMs: 15 * 60_000, max: 20, name: 'sign-in attempts' }),
+  register: new RateLimiter({ windowMs: 60 * 60_000, max: 10, name: 'sign-ups' }),
+  write: new RateLimiter({ windowMs: 60_000, max: 120, name: 'saves' }),
+  api: new RateLimiter({ windowMs: 60_000, max: 600, name: 'requests' }),
+};
+
+/**
+ * Apply a limit and answer for the caller if it has been exceeded.
+ * @returns {boolean} true when the request may continue
+ */
+function within(limiter, key, res) {
+  const verdict = limiter.check(key);
+  if (verdict.ok) return true;
+  res.setHeader('Retry-After', String(verdict.retryAfter));
+  sendJSON(res, 429, {
+    error: `Too many ${limiter.name}. Try again in ${verdict.retryAfter} seconds.`,
+    code: 'rate_limited',
+  });
+  return false;
+}
 
 // Supabase when it is configured, JSON files otherwise. Recording happens
 // where the network does not reach, so a field laptop with no cloud has to
@@ -84,10 +121,23 @@ function mkdirSafe(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function setCORS(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+/**
+ * The app is served by this same server, so it needs no cross-origin access at
+ * all. An explicit list can be set for a separate front end; the previous
+ * wildcard let any page on the network call these endpoints with a token it
+ * had got hold of.
+ */
+const ALLOWED_ORIGINS = (process.env.SOLARIS_ALLOWED_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function setCORS(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  }
 }
 
 function sendJSON(res, code, obj) {
@@ -96,13 +146,13 @@ function sendJSON(res, code, obj) {
 }
 
 /** Read a request body into a Buffer, refusing anything over the cap. */
-function readBody(req, res) {
+function readBody(req, res, cap = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', chunk => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > cap) {
         sendJSON(res, 413, { error: 'Payload too large' });
         req.destroy();
         reject(new Error('body too large'));
@@ -149,8 +199,8 @@ function bearer(req) {
  *
  * @returns {{ok: true, user: string|null} | {ok: false}}
  */
-function requireUser(req, res) {
-  const username = auth.verifyToken(bearer(req));
+async function requireUser(req, res) {
+  const username = await auth.verifySession(bearer(req));
   if (username) return { ok: true, user: username };
 
   if (!auth.isBootstrapped) return { ok: true, user: null };
@@ -403,10 +453,7 @@ async function handleSave(req, res, username) {
     // Mark the prompt as covered so the randomiser stops handing it out to
     // this contributor and starts favouring thinner words for everyone else.
     const scores = (parsedMeta && parsedMeta.scores) || {};
-    const credit = await auth.recordWord(username, {
-      score: scores.banjara,
-      streak: parsedMeta && parsedMeta.streak,
-    });
+    const credit = await auth.recordWord(username, { score: scores.banjara });
     if (credit) { profile = credit.profile; awarded = credit.xp; }
 
     const promptId = parsedMeta && parsedMeta.prompt && parsedMeta.prompt.id;
@@ -458,7 +505,7 @@ async function handleSessionLog(req, res, username) {
   // completion screen can show a level rather than just one session's XP.
   let profile = null;
   if (username) {
-    profile = await auth.recordSession(username, { streak: log.streak });
+    profile = await auth.recordSession(username);
 
     // The run sheet goes to the database too when there is one; on files the
     // JSON written above is the record.
@@ -481,20 +528,30 @@ async function handleSessionLog(req, res, username) {
 
 // ── Auth routes ───────────────────────────────────────────────────────────────
 async function readJSON(req, res) {
-  const body = await readBody(req, res);
+  const body = await readBody(req, res, MAX_JSON_BYTES);
   try { return JSON.parse(body.toString('utf8')); }
   catch { sendJSON(res, 400, { error: 'Body must be JSON' }); return null; }
 }
 
 async function handleRegister(req, res) {
+  const ip = clientAddress(req, { trustProxy: TRUST_PROXY });
+  if (!within(limits.register, ip, res)) return;
+
   const payload = await readJSON(req, res);
   if (!payload) return;
 
-  // Open only while nobody has signed up yet, or to someone already signed in.
-  // Otherwise anyone who can reach the network could enrol themselves.
-  const caller = auth.verifyToken(bearer(req));
+  const caller = await auth.verifySession(bearer(req));
+
+  // The first account always gets in, or the server could never be set up.
+  // After that: open sign-up unless it has been turned off, an invite code if
+  // one is configured, and an existing user can always add a teammate.
   if (auth.isBootstrapped && !caller) {
-    return sendJSON(res, 403, { error: 'Ask an existing user to create your account.' });
+    if (!OPEN_REGISTRATION) {
+      return sendJSON(res, 403, { error: 'Ask an existing user to create your account.' });
+    }
+    if (INVITE_CODE && payload.inviteCode !== INVITE_CODE) {
+      return sendJSON(res, 403, { error: 'That invite code is not right.', code: 'invite_required' });
+    }
   }
 
   try {
@@ -509,23 +566,62 @@ async function handleRegister(req, res) {
 }
 
 async function handleLogin(req, res) {
+  const ip = clientAddress(req, { trustProxy: TRUST_PROXY });
+  if (!within(limits.login, ip, res)) return;
+
   const payload = await readJSON(req, res);
   if (!payload) return;
+
+  // Also per account, so hammering one username from many addresses is
+  // counted as what it is.
+  const named = `user:${String(payload.username || '').toLowerCase()}`;
+  if (!within(limits.login, named, res)) return;
+
   try {
-    sendJSON(res, 200, await auth.login(payload));
+    const session = await auth.login(payload);
+    // A success clears the counters, so one typo does not spend the quota of
+    // whoever is genuinely trying to sign in.
+    limits.login.clear(ip);
+    limits.login.clear(named);
+    sendJSON(res, 200, session);
   } catch (err) {
     sendJSON(res, err.status || 401, { error: err.message });
   }
 }
 
 async function handleMe(req, res) {
-  const username = auth.verifyToken(bearer(req));
+  const username = await auth.verifySession(bearer(req));
   if (!username) return sendJSON(res, 401, { error: 'Not signed in.', code: 'auth_required' });
 
   const user = await auth.publicUser(username);
   // The token is valid but the account is gone — deleted since it was issued.
   if (!user) return sendJSON(res, 401, { error: 'Not signed in.', code: 'auth_required' });
   sendJSON(res, 200, { user });
+}
+
+async function handleChangePassword(req, res) {
+  const username = await auth.verifySession(bearer(req));
+  if (!username) return sendJSON(res, 401, { error: 'Sign in first.', code: 'auth_required' });
+
+  const payload = await readJSON(req, res);
+  if (!payload) return;
+
+  try {
+    const result = await auth.changePassword(username, {
+      current: payload.currentPassword,
+      next: payload.newPassword,
+    });
+    sendJSON(res, 200, result);
+  } catch (err) {
+    sendJSON(res, err.status || 400, { error: err.message });
+  }
+}
+
+async function handleSignOutEverywhere(req, res) {
+  const username = await auth.verifySession(bearer(req));
+  if (!username) return sendJSON(res, 401, { error: 'Sign in first.', code: 'auth_required' });
+  await auth.signOutEverywhere(username);
+  sendJSON(res, 200, { success: true });
 }
 
 // ── Word routes ───────────────────────────────────────────────────────────────
@@ -568,7 +664,15 @@ async function handleSkip(req, res, username) {
 
 // ── Request handler ───────────────────────────────────────────────────────────
 async function handler(req, res) {
-  setCORS(res);
+  setCORS(req, res);
+
+  // Defensive headers on every response, including the app itself.
+  for (const [name, value] of Object.entries(securityHeaders(!!req.socket.encrypted))) {
+    res.setHeader(name, value);
+  }
+
+  const ip = clientAddress(req, { trustProxy: TRUST_PROXY });
+  if (!within(limits.api, ip, res)) return;
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -581,31 +685,35 @@ async function handler(req, res) {
 
   try {
     if (req.method === 'GET' && pathname === '/health') {
+      // Deliberately thin. The dataset path and the number of accounts are
+      // details about the deployment, and an unauthenticated caller has no
+      // use for either.
       return sendJSON(res, 200, {
         status: 'ok',
-        basePath: BASE_PATH,
         secure: !!req.socket.encrypted,
         engines: { sarvam: !!STT.sarvam.key, groq: !!STT.groq.key },
-        auth: { required: auth.isBootstrapped, users: auth.userCount },
+        auth: { required: auth.isBootstrapped, openRegistration: OPEN_REGISTRATION, inviteRequired: !!INVITE_CODE },
       });
     }
 
     if (req.method === 'POST' && pathname === '/api/auth/register') return await handleRegister(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/login')    return await handleLogin(req, res);
     if (req.method === 'GET'  && pathname === '/api/auth/me')       return await handleMe(req, res);
+    if (req.method === 'POST' && pathname === '/api/auth/password')  return await handleChangePassword(req, res);
+    if (req.method === 'POST' && pathname === '/api/auth/signout-all') return await handleSignOutEverywhere(req, res);
 
     if (req.method === 'GET' && pathname === '/api/words/categories') {
-      const who = requireUser(req, res);
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleCategories(req, res, who.user);
     }
     if (req.method === 'GET' && pathname === '/api/words/batch') {
-      const who = requireUser(req, res);
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleBatch(req, res, who.user);
     }
     if (req.method === 'POST' && pathname === '/api/words/skip') {
-      const who = requireUser(req, res);
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleSkip(req, res, who.user);
     }
@@ -613,17 +721,18 @@ async function handler(req, res) {
     // Everything below writes to the archive or spends an API budget, so it
     // runs as a known user once accounts exist.
     if (req.method === 'POST' && pathname === '/save') {
-      const who = requireUser(req, res);
+      if (!within(limits.write, ip, res)) return;
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleSave(req, res, who.user);
     }
     if (req.method === 'POST' && pathname === '/api/stt') {
-      const who = requireUser(req, res);
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleSTT(req, res);
     }
     if (req.method === 'POST' && pathname === '/api/session-log') {
-      const who = requireUser(req, res);
+      const who = await requireUser(req, res);
       if (!who.ok) return;
       return await handleSessionLog(req, res, who.user);
     }

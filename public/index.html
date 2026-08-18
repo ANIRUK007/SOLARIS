@@ -22,7 +22,7 @@
 <section class="screen" id="screen-auth" hidden>
   <div class="center-col">
     <div class="brand">
-      <div class="brand-ring"><div class="brand-dot"></div></div>
+      <span class="brand-mark" aria-hidden="true">;</span>
       <h1>SOLARIS</h1>
     </div>
 
@@ -31,19 +31,19 @@
     <div class="field-group">
       <label for="auth-user">Username</label>
       <input id="auth-user" type="text" maxlength="32" autocomplete="username"
-             autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="fieldworker" />
+             autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="Choose a username" />
     </div>
 
     <div class="field-group">
       <label for="auth-pass">Password</label>
       <input id="auth-pass" type="password" autocomplete="current-password"
-             enterkeyhint="go" placeholder="••••••••" />
+             enterkeyhint="go" placeholder="At least 10 characters" />
     </div>
 
     <div class="field-group" id="authNameRow" hidden>
       <label for="auth-name">Display name</label>
       <input id="auth-name" type="text" maxlength="60" autocomplete="name"
-             enterkeyhint="go" placeholder="Your name" />
+             enterkeyhint="go" placeholder="How your name should appear" />
     </div>
 
     <div class="err-box" id="authErr" hidden></div>
@@ -68,7 +68,7 @@
       <div class="who-name" id="userName">—</div>
       <div class="who-lvl" id="userLevel">Level 1</div>
     </div>
-    <div class="streak-pill" id="portalStreak" title="Words in a row">
+    <div class="streak-pill" id="portalStreak" title="Days in a row with a recording">
       <span class="flame" id="streakIcon"></span><span id="portalStreakVal">0</span>
     </div>
   </header>
@@ -96,7 +96,7 @@
   <div class="topbar">
     <button class="icon-btn" id="btnQuit" type="button" aria-label="End session"></button>
     <div class="segbar" id="segbar" role="progressbar" aria-label="Session progress"></div>
-    <div class="streak-pill" id="streakBox" title="Consecutive good takes">
+    <div class="streak-pill" id="streakBox" title="Days in a row with a recording">
       <span class="flame" id="streakIconPlay"></span><span id="streakVal">0</span>
     </div>
   </div>
@@ -187,8 +187,8 @@
 
     <div class="tile-row">
       <div class="tile"><span class="tile-v" id="wordsDone">0</span><span class="tile-k">Words</span></div>
-      <div class="tile"><span class="tile-v" id="drawerStreak">0</span><span class="tile-k">Streak</span></div>
-      <div class="tile"><span class="tile-v" id="drawerBest">0</span><span class="tile-k">Best</span></div>
+      <div class="tile"><span class="tile-v" id="drawerStreak">0</span><span class="tile-k">Day streak</span></div>
+      <div class="tile"><span class="tile-v" id="drawerBest">0</span><span class="tile-k">Best run</span></div>
     </div>
 
     <div class="card contrib-card">

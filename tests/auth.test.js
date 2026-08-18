@@ -9,7 +9,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { Auth, levelFor } = require('../auth.js');
+const { Auth, levelFor, today } = require('../auth.js');
 const { FileDb } = require('../db.js');
 
 let passed = 0;
@@ -36,10 +36,10 @@ async function freshAuth(name) {
 // ── Unit: hashing and tokens ──────────────────────────────────────────────────
 test('a registered password is never stored in the clear', async () => {
   const a = await freshAuth('store');
-  await a.register({ username: 'ravi', password: 'correct horse battery' });
+  await a.register({ username: 'ravi', password: 'correct horse battery staple' });
 
   const raw = fs.readFileSync(a.db.usersFile, 'utf8');
-  assert.ok(!raw.includes('correct horse battery'), 'the password appears in the store file');
+  assert.ok(!raw.includes('correct horse battery staple'), 'the password appears in the store file');
 
   const stored = await a.db.findContributor('ravi');
   assert.ok(stored.hash && stored.salt, 'no hash/salt recorded');
@@ -47,8 +47,8 @@ test('a registered password is never stored in the clear', async () => {
 
 test('the same password hashes differently for two users', async () => {
   const a = await freshAuth('salts');
-  await a.register({ username: 'one', password: 'sharedpassword' });
-  await a.register({ username: 'two', password: 'sharedpassword' });
+  await a.register({ username: 'one', password: 'shared-password-2026' });
+  await a.register({ username: 'two', password: 'shared-password-2026' });
   // Distinct salts, so a leaked store cannot be cracked once for everyone.
   const [one, two] = [await a.db.findContributor('one'), await a.db.findContributor('two')];
   assert.notStrictEqual(one.hash, two.hash);
@@ -56,18 +56,18 @@ test('the same password hashes differently for two users', async () => {
 
 test('login succeeds with the right password and fails with the wrong one', async () => {
   const a = await freshAuth('login');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
-  const session = await a.login({ username: 'ravi', password: 'correcthorse' });
+  const session = await a.login({ username: 'ravi', password: 'correct-horse-2026' });
   assert.ok(session.token, 'no token issued');
   assert.strictEqual(session.user.username, 'ravi');
 
-  await assert.rejects(() => a.login({ username: 'ravi', password: 'wrongpass1' }), /Incorrect/);
+  await assert.rejects(() => a.login({ username: 'ravi', password: 'wrong-pass-2026' }), /Incorrect/);
 });
 
 test('an unknown user and a wrong password report the same thing', async () => {
   const a = await freshAuth('enum');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   // Different messages would let someone enumerate valid usernames.
   const missing = await a.login({ username: 'nobody', password: 'x' }).catch(e => e.message);
@@ -77,29 +77,32 @@ test('an unknown user and a wrong password report the same thing', async () => {
 
 test('usernames are case-insensitive and cannot be duplicated', async () => {
   const a = await freshAuth('dupe');
-  await a.register({ username: 'Ravi', password: 'correcthorse' });
-  await assert.rejects(() => a.register({ username: 'ravi', password: 'otherpass1' }), /already taken/);
-  assert.ok((await a.login({ username: 'RAVI', password: 'correcthorse' })).token);
+  await a.register({ username: 'Ravi', password: 'correct-horse-2026' });
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'other-pass-2026' }), /already taken/);
+  assert.ok((await a.login({ username: 'RAVI', password: 'correct-horse-2026' })).token);
 });
 
 test('weak passwords and malformed usernames are refused', async () => {
   const a = await freshAuth('weak');
-  await assert.rejects(() => a.register({ username: 'ravi', password: 'short' }), /at least 8/);
-  await assert.rejects(() => a.register({ username: 'a', password: 'longenough1' }), /3-32/);
-  await assert.rejects(() => a.register({ username: 'has space', password: 'longenough1' }), /3-32/);
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'short' }), /at least 10/);
+  // Length alone is not enough: the passwords attackers try first are long.
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'password123' }), /commonly used/);
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'ravipassword' }), /your username/);
+  await assert.rejects(() => a.register({ username: 'a', password: 'long-enough-2026' }), /3-32/);
+  await assert.rejects(() => a.register({ username: 'has space', password: 'long-enough-2026' }), /3-32/);
 });
 
 test('a valid token identifies its user', async () => {
   const a = await freshAuth('token');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
-  const { token } = await a.login({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+  const { token } = await a.login({ username: 'ravi', password: 'correct-horse-2026' });
   assert.strictEqual(a.verifyToken(token), 'ravi');
 });
 
 test('a tampered token is rejected', async () => {
   const a = await freshAuth('tamper');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
-  const { token } = await a.login({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+  const { token } = await a.login({ username: 'ravi', password: 'correct-horse-2026' });
   const [body, sig] = token.split('.');
 
   // Re-sign a different username with the same signature: the HMAC must fail.
@@ -113,7 +116,7 @@ test('a tampered token is rejected', async () => {
 
 test('an expired token is rejected', async () => {
   const a = await freshAuth('expiry');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
   const expired = a._sign({ u: 'ravi', exp: Date.now() - 1000 });
   assert.strictEqual(a.verifyToken(expired), null);
 });
@@ -121,22 +124,22 @@ test('an expired token is rejected', async () => {
 test("a token signed by another server's secret is rejected", async () => {
   const a = await freshAuth('secret-a');
   const b = await freshAuth('secret-b');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
-  await b.register({ username: 'ravi', password: 'correcthorse' });
-  const fromB = await b.login({ username: 'ravi', password: 'correcthorse' }).token;
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+  await b.register({ username: 'ravi', password: 'correct-horse-2026' });
+  const fromB = await b.login({ username: 'ravi', password: 'correct-horse-2026' }).token;
   assert.strictEqual(a.verifyToken(fromB), null);
 });
 
 test('the public profile never exposes the hash or salt', async () => {
   const a = await freshAuth('public');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
   const pub = await a.publicUser('ravi');
   assert.ok(!('hash' in pub) && !('salt' in pub), JSON.stringify(pub));
 });
 
 test('one contributed word counts immediately', async () => {
   const a = await freshAuth('oneword');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   const { profile, xp } = await a.recordWord('ravi', { score: 100, streak: 1 });
   assert.strictEqual(profile.stats.words, 1, 'a single word did not register');
@@ -146,21 +149,22 @@ test('one contributed word counts immediately', async () => {
 
 test('contributions accumulate word by word', async () => {
   const a = await freshAuth('stats');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   let total = 0;
-  for (let i = 1; i <= 5; i++) total += (await a.recordWord('ravi', { score: 80, streak: i })).xp;
+  for (let i = 1; i <= 5; i++) total += (await a.recordWord('ravi', { score: 80 })).xp;
 
   const pub = await a.publicUser('ravi');
   assert.strictEqual(pub.stats.words, 5);
   assert.strictEqual(pub.stats.xp, total);
   assert.strictEqual(pub.level, levelFor(total));
-  assert.strictEqual(pub.stats.streak, 5);
+  // Five words in one sitting is one day, not five days.
+  assert.strictEqual(pub.stats.streak, 1, 'the streak counted words rather than days');
 });
 
 test('XP per word is computed by the server, within a fixed range', async () => {
   const a = await freshAuth('xprange');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   // A client claiming an enormous score or streak cannot inflate the award.
   const wild = await a.recordWord('ravi', { score: 99999, streak: 99999 });
@@ -172,7 +176,7 @@ test('XP per word is computed by the server, within a fixed range', async () => 
 
 test('opening and closing a word set with nothing recorded counts for nothing', async () => {
   const a = await freshAuth('nosessions');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
   await a.recordSession('ravi', { streak: 0 });
 
   const pub = await a.publicUser('ravi');
@@ -183,7 +187,7 @@ test('opening and closing a word set with nothing recorded counts for nothing', 
 
 test('finishing a set does not double-count the words already credited', async () => {
   const a = await freshAuth('nodouble');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   await a.recordWord('ravi', { score: 90, streak: 1 });
   await a.recordWord('ravi', { score: 90, streak: 2 });
@@ -196,30 +200,72 @@ test('finishing a set does not double-count the words already credited', async (
   assert.strictEqual(afterSession.xp, afterWords.xp, 'XP was counted twice');
 });
 
-test('a streak survives between sittings and only resets when told to', async () => {
-  const a = await freshAuth('streaks');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+test('a streak counts days, and a second day in a row extends it', async () => {
+  const a = await freshAuth('streak-days');
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
-  await a.recordSession('ravi', { streak: 3 });
-  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 3);
+  await a.recordWord('ravi', { score: 80 });
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 1);
 
-  // A sitting that reports no streak change leaves it standing.
-  await a.recordSession('ravi', {});
-  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 3, 'the streak was dropped without being told to');
+  // Pretend the last contribution was yesterday, then record again.
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  await a.db.updateContributor('ravi', { lastContributionDay: today(yesterday) });
 
-  // A broken streak comes back as 0, but the best is remembered.
-  await a.recordSession('ravi', { streak: 0 });
+  await a.recordWord('ravi', { score: 80 });
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 2, 'a second day did not extend the streak');
+});
+
+test('a gap of more than a day starts the streak again', async () => {
+  const a = await freshAuth('streak-gap');
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+
+  await a.recordWord('ravi', { score: 80 });
+  await a.db.updateContributor('ravi', { streak: 9, bestStreak: 9 });
+
+  const longAgo = new Date();
+  longAgo.setDate(longAgo.getDate() - 5);
+  await a.db.updateContributor('ravi', { lastContributionDay: today(longAgo) });
+
+  await a.recordWord('ravi', { score: 80 });
+  const pub = await a.publicUser('ravi');
+  assert.strictEqual(pub.stats.streak, 1, 'a five-day gap kept the streak alive');
+  assert.strictEqual(pub.stats.bestStreak, 9, 'the best was forgotten');
+});
+
+test('a lapsed streak reads as zero without being rewritten', async () => {
+  const a = await freshAuth('streak-lapse');
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+  await a.recordWord('ravi', { score: 80 });
+
+  const longAgo = new Date();
+  longAgo.setDate(longAgo.getDate() - 4);
+  await a.db.updateContributor('ravi', { lastContributionDay: today(longAgo), streak: 6 });
+
+  // Shown as zero, because it is over — but the stored number is left alone
+  // rather than being quietly rewritten by a read.
   assert.strictEqual((await a.publicUser('ravi')).stats.streak, 0);
-  assert.strictEqual((await a.publicUser('ravi')).stats.bestStreak, 3);
+  assert.strictEqual((await a.db.findContributor('ravi')).stats.streak, 6);
+});
+
+test('more words on the same day do not extend the streak', async () => {
+  const a = await freshAuth('streak-sameday');
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
+
+  for (let i = 0; i < 4; i++) await a.recordWord('ravi', { score: 80 });
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 1);
+  assert.strictEqual((await a.publicUser('ravi')).stats.words, 4);
 });
 
 test('a record written before streaks were persisted still loads', async () => {
   const a = await freshAuth('legacy-stats');
-  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.register({ username: 'ravi', password: 'correct-horse-2026' });
 
-  // Simulate the older shape: a stats object with a session tally and no streak.
-  const row = await a.db.findContributor('ravi');
-  row.stats = { xp: 240, sessions: 4, words: 9, bestStreak: 2 };
+  // Simulate the older shape: a session tally, and no streak recorded.
+  await a.db.updateContributor('ravi', { xp: 240, words: 9, bestStreak: 2 });
+  const stored = await a.db.findContributor('ravi');
+  stored.stats.sessions = 4;
+  await a.db.updateContributor('ravi', {});
 
   const pub = await a.publicUser('ravi');
   assert.strictEqual(pub.stats.xp, 240);
@@ -235,10 +281,10 @@ test('accounts survive a restart', async () => {
     indexFile: path.join(TMP, 'persist-index.json'),
   };
   const first = await new Auth(new FileDb(files)).init();
-  await first.register({ username: 'ravi', password: 'correcthorse' });
+  await first.register({ username: 'ravi', password: 'correct-horse-2026' });
 
   const second = await new Auth(new FileDb(files)).init();
-  const session = await second.login({ username: 'ravi', password: 'correcthorse' });
+  const session = await second.login({ username: 'ravi', password: 'correct-horse-2026' });
   assert.ok(session.token, 'could not log in after reloading the store');
   // The signing secret must be the same, or every existing token dies on
   // restart.
@@ -322,7 +368,7 @@ function savePayload() {
     check('writes are allowed before any account exists', save.status === 200, `status ${save.status}`);
 
     // First registration bootstraps and signs in.
-    const reg = await api.post('/api/auth/register', { username: 'ravi', password: 'correcthorse', displayName: 'Ravi K' });
+    const reg = await api.post('/api/auth/register', { username: 'ravi', password: 'correct-horse-2026', displayName: 'Ravi K' });
     check('the first account can be created without a token', reg.status === 201, JSON.stringify(reg.body));
     check('registering returns a token', !!reg.body.token);
     check('registering returns a profile without secrets',
@@ -352,14 +398,16 @@ function savePayload() {
     check('the server stamps who recorded it, overriding the client', meta.recordedBy === 'ravi', JSON.stringify(meta.recordedBy));
 
     // Open registration would make the guard pointless.
-    const second = await api.post('/api/auth/register', { username: 'stranger', password: 'letmein12345' });
-    check('a stranger cannot self-register once an account exists', second.status === 403, `status ${second.status}`);
+    // Registration is open by default so contributors can start without a
+    // gatekeeper; a closed study sets SOLARIS_OPEN_REGISTRATION=false.
+    const second = await api.post('/api/auth/register', { username: 'stranger', password: 'letmein-2026-x' });
+    check('a stranger can sign up when registration is open', second.status === 201, `status ${second.status}`);
 
-    const invited = await api.post('/api/auth/register', { username: 'teammate', password: 'letmein12345' }, token);
+    const invited = await api.post('/api/auth/register', { username: 'teammate', password: 'letmein-2026-y' }, token);
     check('a signed-in user can create an account for a teammate', invited.status === 201, JSON.stringify(invited.body));
 
     // Login and identity.
-    const login = await api.post('/api/auth/login', { username: 'ravi', password: 'correcthorse' });
+    const login = await api.post('/api/auth/login', { username: 'ravi', password: 'correct-horse-2026' });
     check('login returns a token', login.status === 200 && !!login.body.token, JSON.stringify(login.body));
 
     const badLogin = await api.post('/api/auth/login', { username: 'ravi', password: 'nope' });

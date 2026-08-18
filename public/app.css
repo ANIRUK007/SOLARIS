@@ -422,20 +422,19 @@ body::after {
 }
 
 .brand { display: flex; align-items: center; gap: 13px; justify-content: center; }
-.brand-ring {
-  width: 48px; height: 48px;
-  border: var(--bd-hi) solid var(--gold);
-  border-radius: 50%;
-  display: grid; place-items: center;
-  box-shadow: 0 0 0 3px rgba(255, 201, 60, .16);
+/* A semicolon: the mark that joins two clauses instead of ending one, which
+   is what Telugu does between the prompt and the Banjara answer. */
+.brand-mark {
+  font-family: var(--mono);
+  font-size: 54px;
+  font-weight: 700;
+  line-height: .8;
+  color: var(--gold);
+  padding-bottom: 14px;
+  text-shadow: 0 0 26px rgba(255, 201, 60, .5);
+  animation: breathe 2.8s ease-in-out infinite;
 }
-.brand-dot {
-  width: 14px; height: 14px;
-  background: var(--hot);
-  border-radius: 50%;
-  animation: breathe 2.4s ease-in-out infinite;
-}
-@keyframes breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.6); } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 .brand h1 {
   font-family: var(--mono);
   font-size: 24px;

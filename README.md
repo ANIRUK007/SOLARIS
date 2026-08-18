@@ -118,9 +118,35 @@ dataset — the dataset gets copied and shared, and password hashes should not t
 The server stamps who recorded each session from the token, overwriting whatever the client
 claimed. Provenance the client can edit is not provenance.
 
-**What this is not:** there is no password reset, no rate limiting and no token revocation.
-A token stays valid until it expires. That is a reasonable trade for a trusted LAN; if this
-is ever exposed more widely it needs all three before it should be.
+### What protects an account
+
+| | |
+| --- | --- |
+| Passwords | scrypt with a per-user salt; minimum 10 characters, checked against the passwords attackers try first and refused if they contain the username |
+| Guessing | 20 sign-in attempts per address per 15 minutes, and an account locks for 15 minutes after 8 wrong passwords |
+| Stolen sessions | changing a password, or signing out everywhere, invalidates every token already issued |
+| The page | content security policy allows nothing but this origin and forbids inline script and `eval`, so an injected script cannot read the session token |
+| Framing | `frame-ancestors 'none'` and `X-Frame-Options: DENY` |
+| Other origins | no CORS access unless an origin is listed in `SOLARIS_ALLOWED_ORIGINS` |
+| Capabilities | `Permissions-Policy` allows the microphone and nothing else |
+| Health endpoint | says only whether the server is up and whether sign-in is required — not the dataset path, not how many accounts exist |
+
+Registration is open by default so contributors can start without a gatekeeper. Set
+`SOLARIS_OPEN_REGISTRATION=false` for a closed study, or `SOLARIS_INVITE_CODE=...` to open it
+only to people who were given the code.
+
+**Still missing, and worth knowing before this faces the open internet:** there is no password
+reset (an admin has to help), and the rate limiting is in-process — it resets when the server
+restarts, and two servers behind a load balancer count separately. Move the counters into
+Postgres before running more than one.
+
+### Streaks
+
+A streak is the number of consecutive **days** with at least one recording, in
+`SOLARIS_TIMEZONE` (default `Asia/Kolkata`). Recording ten words in one afternoon is one day.
+A streak that has lapsed reads as zero rather than showing the number it reached last month,
+and marking a word as having no Banjara form does not break it — the streak is about turning
+up, not about never saying "no word for this".
 
 ## What happens to a recording
 

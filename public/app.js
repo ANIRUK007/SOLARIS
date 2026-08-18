@@ -315,8 +315,13 @@
     $('drawerStreak').textContent = user.stats.streak || 0;
     $('drawerBest').textContent = user.stats.bestStreak || 0;
 
-    $('portalStreakVal').textContent = user.stats.streak || 0;
-    $('portalStreak').classList.toggle('cold', !user.stats.streak);
+    const days = user.stats.streak || 0;
+    $('portalStreakVal').textContent = days;
+    $('portalStreak').classList.toggle('cold', !days);
+    $('portalStreak').title = days
+      ? `${days} day${days === 1 ? '' : 's'} in a row` +
+        (user.stats.contributedToday ? '' : ' — record today to keep it')
+      : 'Record a word to start a streak';
   }
 
   /** Per-set totals, listed in the profile drawer. */
@@ -517,8 +522,8 @@
     G.results = [];
     G.xp = 0;
 
-    // The streak carries over from previous sittings rather than restarting,
-    // so it is worth protecting.
+    // The streak is a run of days, held on the account. A sitting displays it
+    // but does not change it: recording twice in one afternoon is one day.
     G.streak = (SolarisAuth.user && SolarisAuth.user.stats.streak) || 0;
     G.bestStreak = G.streak;
     G.startedAt = Date.now();
@@ -1007,6 +1012,11 @@
         SolarisAuth.updateUser(res.profile);
         celebrateXp(res.xp);
         paintProfile();
+
+        // The day streak may have just gone up; the session header shows it.
+        const days = res.profile.stats.streak || 0;
+        $('streakVal').textContent = days;
+        $('streakBox').classList.toggle('cold', !days);
       }
     } catch (err) {
       console.error('[SAVE]', err);
@@ -1015,10 +1025,6 @@
       G.busy = false;
     }
 
-    G.streak++;
-    G.bestStreak = Math.max(G.bestStreak, G.streak);
-    $('streakVal').textContent = G.streak;
-    $('streakBox').classList.toggle('cold', !G.streak);
     $('streakBox').classList.add('pulse');
     setTimeout(() => $('streakBox').classList.remove('pulse'), 500);
 
@@ -1033,6 +1039,8 @@
     // in the session log rather than silently dropped.
     G.results[G.index] = 'skipped';
     markProgress(G.pack.id);
+    // A skip does not break a day streak: it is an answer, and the streak is
+    // about turning up rather than about never saying "no word for this".
 
     // Tell the server too: a word with no Banjara form should not come back
     // to this contributor, and it is a finding worth keeping.
@@ -1043,9 +1051,7 @@
       body: JSON.stringify({ wordId }),
     }).catch(() => {});
 
-    G.streak = 0;
-    $('streakVal').textContent = '0';
-    $('streakBox').classList.add('cold');
+
     toast('Marked as “no Banjara word”');
     hideSheet();
     advance();
@@ -1173,8 +1179,6 @@
         startedAt: new Date(G.startedAt).toISOString(),
         finishedAt: new Date().toISOString(),
         xp: G.xp,
-        streak: G.streak,
-        bestStreak: G.bestStreak,
         totals: { prompts: G.queue.length, recorded, skipped },
         items: G.queue.map((item, i) => ({
           id: item.id,
