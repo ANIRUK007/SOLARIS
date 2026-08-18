@@ -402,14 +402,26 @@
     const clipOk = clipR < 0.01;
     const clipSc = clipOk ? 25 : Math.max(0, Math.round((1 - clipR / 0.05) * 25));
 
-    // Compare the first 100 ms (assumed near-silent lead-in) against the
-    // whole clip to approximate signal-to-noise.
-    const noiseN = Math.min(Math.floor(sr * 0.1), d.length);
-    let noiseS = 0;
-    for (let i = 0; i < noiseN; i++) noiseS += d[i] * d[i];
-    const nP = (noiseS / noiseN) || 1e-4;
-    const sP = (ss / d.length) || 1e-4;
-    const snr = 10 * Math.log10(sP / nP);
+    // Signal-to-noise. The noise floor is the 10th-percentile frame energy
+    // rather than the first 100 ms: a clip that happens to start on digital
+    // silence drives that estimate to zero, and the ratio then explodes into
+    // meaningless readings like "687 dB" that pass the check no matter how
+    // bad the audio is.
+    const frame = Math.max(1, Math.floor(sr * 0.02));      // 20 ms
+    const energies = [];
+    for (let i = 0; i + frame <= d.length; i += frame) {
+      let e = 0;
+      for (let j = i; j < i + frame; j++) e += d[j] * d[j];
+      energies.push(e / frame);
+    }
+    energies.sort((a, b) => a - b);
+
+    const sP = (ss / d.length) || 1e-12;
+    const floorIdx = Math.floor(energies.length * 0.1);
+    // Floor the noise estimate at -90 dBFS, about the quietest thing 16-bit
+    // audio can represent, so the ratio stays finite.
+    const nP = Math.max(energies.length ? energies[floorIdx] : sP, 1e-9);
+    const snr = Math.max(-20, Math.min(60, 10 * Math.log10(sP / nP)));
     const snrOk = snr > 10;
     const snrSc = snrOk ? 20 : Math.max(0, Math.round((snr / 10) * 20));
 
@@ -698,6 +710,7 @@
         });
         $('upload-note').textContent = `Saved to: ${res.savedTo}`;
         $('success-panel').classList.add('show');
+        $('idleNote').style.display = 'none';
       }
 
       refreshQueue();
@@ -718,6 +731,7 @@
     $('trans-text').value = '';
     $('tstatus').textContent = 'Waiting for Telugu audio…';
     $('success-panel').classList.remove('show');
+    $('idleNote').style.display = '';
     clearAlert('errSubmit');
     clearAlert('errSave');
     clearAlert('errTrans');
@@ -772,6 +786,12 @@
   function init() {
     SolarisStore.configure({ baseUrl: CONFIG.serverUrl });
 
+    // Read-only handle on the capture state. A phone in the field has no
+    // devtools worth using, so being able to ask a remote operator to read
+    // this out is the difference between diagnosing a bad session and
+    // guessing at it.
+    window.__solarisDebug = S;
+
     const sel = $('tel-letter');
     LETTERS.forEach(l => {
       const o = document.createElement('option');
@@ -794,6 +814,17 @@
     $('seg-type').addEventListener('change', (e) => { saveMeta('seg', e.target.value); updateMeta(); });
 
     const metaCard = $('card-meta');
+
+    // A session is dozens of takes from the same speaker: the metadata is
+    // filled once and then only the letter changes. On a return visit the
+    // card starts folded so the record buttons are on the first screen
+    // instead of below the fold.
+    if (localStorage.getItem('solaris_returning') === '1') {
+      metaCard.classList.add('collapsed');
+      $('metaToggle').setAttribute('aria-expanded', 'false');
+    }
+    localStorage.setItem('solaris_returning', '1');
+
     const toggleMeta = () => {
       const collapsed = metaCard.classList.toggle('collapsed');
       $('metaToggle').setAttribute('aria-expanded', String(!collapsed));

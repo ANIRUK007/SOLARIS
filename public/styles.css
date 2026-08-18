@@ -183,9 +183,18 @@ main {
 .card-hdr.toggle { cursor: pointer; user-select: none; -webkit-user-select: none; }
 .chev {
   margin-left: 8px;
-  color: var(--txt-3);
-  font-size: 11px;
+  color: var(--txt-2);
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
   transition: transform .25s ease;
+}
+
+/* Telugu glyphs carry more detail than Latin at the same point size, and
+   the letter is the one field the operator changes on every take. */
+#tel-letter {
+  font-size: 20px;
+  letter-spacing: .02em;
 }
 .card.collapsed .chev { transform: rotate(-90deg); }
 .card.collapsed .card-body { display: none; }

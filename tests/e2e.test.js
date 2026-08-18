@@ -18,6 +18,34 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DATASET = path.resolve(fs.mkdtempSync(path.join(os.tmpdir(), 'solaris-e2e-')));
 const SHOTS = path.join(__dirname, 'screenshots');
 
+/**
+ * Locate a Chromium to drive. Playwright's own download is used when it is
+ * present; otherwise fall back to any complete build already in the shared
+ * Playwright cache, which avoids a second multi-hundred-megabyte download on
+ * a machine that already has one. Override with CHROMIUM_PATH.
+ */
+function findChromium() {
+  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+
+  const cache = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
+  if (!fs.existsSync(cache)) return undefined;
+
+  const builds = fs.readdirSync(cache)
+    .filter(d => d.startsWith('chromium-'))
+    .filter(d => fs.existsSync(path.join(cache, d, 'INSTALLATION_COMPLETE')))
+    .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]));
+
+  for (const build of builds) {
+    for (const dir of ['chrome-mac-arm64', 'chrome-mac']) {
+      for (const app of ['Google Chrome for Testing', 'Chromium']) {
+        const exe = path.join(cache, build, dir, `${app}.app`, 'Contents', 'MacOS', app);
+        if (fs.existsSync(exe)) return exe;
+      }
+    }
+  }
+  return undefined;   // let Playwright use its own managed browser
+}
+
 async function waitForServer(ms) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
@@ -50,10 +78,13 @@ async function waitForServer(ms) {
     process.exit(1);
   }
 
+  const executablePath = findChromium();
+  if (executablePath) console.log(`  using ${path.basename(executablePath)}`);
+
   const browser = await chromium.launch({
-    // The full Chromium build, not the headless shell: the shell has no
-    // media stack, so the fake microphone would not exist.
-    channel: 'chromium',
+    // A full Chromium build, not the headless shell: the shell ships without
+    // the media stack, so the fake microphone would not exist.
+    executablePath,
     args: [
       // A synthetic microphone that emits a steady tone, so the recording
       // path runs without a human or a real device.
@@ -118,17 +149,33 @@ async function waitForServer(ms) {
     await page.screenshot({ path: path.join(SHOTS, '01-idle.png'), fullPage: true });
 
     // ── Record both sides ────────────────────────────────────────────────────
-    for (const [side, label] of [['B', 'Banjara'], ['T', 'Telugu']]) {
+    const recordOnce = async (side) => {
       await page.click(`#btn${side}`);
       await page.waitForTimeout(2600);          // clear the 2s minimum-duration rule
       await page.click(`#btn${side}`);
       await page.waitForFunction(
         (s) => document.querySelector(`#score${s}`).textContent !== '—',
         side, { timeout: 20000 });
+      return page.evaluate((s) => window.__solarisDebug.scores[s], side);
+    };
 
-      const score = await page.textContent(`#score${side}`);
+    for (const [side, label] of [['B', 'Banjara'], ['T', 'Telugu']]) {
+      let score = await recordOnce(side);
+
+      // Chrome's fake microphone emits a beep-and-silence pattern, so a take
+      // can legitimately land on a quiet stretch and grade below threshold.
+      // A human would simply re-record; do the same rather than calling it a
+      // product failure.
+      for (let attempt = 0; attempt < 3 && score < 50; attempt++) {
+        await page.click(`#rerec${side}`);
+        score = await recordOnce(side);
+      }
+
+      const shown = await page.textContent(`#score${side}`);
       check(`${label} recording is captured, filtered and graded`,
-        /^\d+%$/.test(score.trim()), `score showed "${score}"`);
+        /^\d+%$/.test(shown.trim()), `score showed "${shown}"`);
+      check(`${label} grades above the quality threshold`,
+        score >= 50, `scored ${score} after retries`);
 
       const playerShown = await page.evaluate(
         (s) => document.querySelector(`#player${s}`).classList.contains('show'), side);
