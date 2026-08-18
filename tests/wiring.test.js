@@ -15,6 +15,9 @@ const html = fs.readFileSync(path.join(pub, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(pub, 'manifest.webmanifest'), 'utf8'));
+const playHtml = fs.readFileSync(path.join(pub, 'play.html'), 'utf8');
+const playJs = fs.readFileSync(path.join(pub, 'play.js'), 'utf8');
+const pack = JSON.parse(fs.readFileSync(path.join(pub, 'packs', 'starter.json'), 'utf8'));
 
 let passed = 0;
 function test(name, fn) {
@@ -112,6 +115,59 @@ test('every file the service worker precaches exists', () => {
     if (m[1] === './') continue;
     assert.ok(fs.existsSync(path.join(pub, m[1])), `precached file is missing: ${m[1]}`);
   }
+});
+
+// ── Word session ──────────────────────────────────────────────────────────────
+const playIds = new Set([...playHtml.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
+
+test('every id used by play.js exists in play.html', () => {
+  const missing = new Set();
+  for (const m of playJs.matchAll(/\$\('([^']+)'\)/g)) {
+    const id = m[1];
+    // Screens are addressed as 'screen-' + name at runtime.
+    if (id.startsWith('screen-')) continue;
+    if (!playIds.has(id)) missing.add(id);
+  }
+  for (const screen of ['screen-setup', 'screen-play', 'screen-done']) {
+    if (!playIds.has(screen)) missing.add(screen);
+  }
+  assert.strictEqual(missing.size, 0, `missing from play.html: ${[...missing].join(', ')}`);
+});
+
+test('play.html loads its dependencies in order', () => {
+  for (const src of ['dsp.js', 'store.js', 'play.js']) {
+    assert.ok(playHtml.includes(src), `play.html never loads ${src}`);
+  }
+  assert.ok(playHtml.indexOf('dsp.js') < playHtml.indexOf('play.js'), 'dsp.js must load before play.js');
+  assert.ok(playHtml.indexOf('store.js') < playHtml.indexOf('play.js'), 'store.js must load before play.js');
+});
+
+test('the word pack is well formed', () => {
+  assert.ok(pack.items.length > 0, 'pack has no items');
+  const ids = new Set();
+  for (const item of pack.items) {
+    assert.ok(item.id, `an item is missing an id: ${JSON.stringify(item)}`);
+    assert.ok(!ids.has(item.id), `duplicate prompt id: ${item.id}`);
+    ids.add(item.id);
+    assert.ok(item.te && item.te.trim(), `${item.id} has no Telugu text`);
+    // Prompt ids become directory names on disk.
+    assert.ok(/^[a-z0-9_-]+$/.test(item.id), `${item.id} is not safe as a folder name`);
+    // Telugu text must actually be in the Telugu block, or the prompt is wrong.
+    assert.ok(/[\u0C00-\u0C7F]/.test(item.te), `${item.id} does not contain Telugu characters`);
+  }
+});
+
+test('play inputs are at least 16px so iOS does not zoom on focus', () => {
+  const css = fs.readFileSync(path.join(pub, 'play.css'), 'utf8');
+  const block = css.match(/\.field-group input, \.field-group select \{([\s\S]*?)\}/);
+  assert.ok(block, 'could not find the play input rule');
+  const size = block[1].match(/font-size:\s*(\d+)px/);
+  assert.ok(size && Number(size[1]) >= 16, `play inputs are ${size ? size[1] : '?'}px`);
+});
+
+test('the game does not call a speech-to-text service', () => {
+  // The prompt is the transcript; reaching for STT here would be a regression.
+  assert.ok(!/api\/stt/.test(playJs), 'play.js calls the STT proxy, but the prompt already is the transcript');
 });
 
 console.log(`\n${passed} passed\n`);

@@ -285,9 +285,15 @@ async function handleSave(req, res) {
   const teluguPart     = get('telugu');
   const transcriptPart = get('transcript');
 
-  if (!folderPathPart || !banjaraPart || !teluguPart || !transcriptPart) {
+  // Telugu audio is optional. In the prompt-driven capture flow the Telugu
+  // side is written text shown to the speaker, and only the Banjara response
+  // is recorded; there is no Telugu take to send.
+  if (!folderPathPart || !banjaraPart || !transcriptPart) {
     console.error('[SAVE] Missing fields. Got parts:', parts.map(p => p.name));
-    return sendJSON(res, 400, { error: 'Missing required fields', received: parts.map(p => p.name) });
+    return sendJSON(res, 400, {
+      error: 'Missing required fields (folderPath, banjara and transcript are required)',
+      received: parts.map(p => p.name),
+    });
   }
 
   const saveDir = resolveInsideBase(folderPathPart.data.toString('utf8'));
@@ -295,14 +301,18 @@ async function handleSave(req, res) {
   mkdirSafe(saveDir);
 
   const bnjPath = path.join(saveDir, safeName(get('bnj_name')?.data.toString('utf8'), 'banjara.wav'));
-  const telPath = path.join(saveDir, safeName(get('tel_name')?.data.toString('utf8'), 'telugu.wav'));
   const txtPath = path.join(saveDir, safeName(get('txt_name')?.data.toString('utf8'), 'telugu.txt'));
 
   fs.writeFileSync(bnjPath, banjaraPart.data);
-  fs.writeFileSync(telPath, teluguPart.data);
   fs.writeFileSync(txtPath, transcriptPart.data.toString('utf8'));
 
-  const written = [path.basename(bnjPath), path.basename(telPath), path.basename(txtPath)];
+  const written = [path.basename(bnjPath), path.basename(txtPath)];
+
+  if (teluguPart) {
+    const telPath = path.join(saveDir, safeName(get('tel_name')?.data.toString('utf8'), 'telugu.wav'));
+    fs.writeFileSync(telPath, teluguPart.data);
+    written.push(path.basename(telPath));
+  }
 
   // Optional extras. The client sends the unfiltered takes so the archive
   // keeps the source audio, plus a session.json describing how the cleaned
@@ -331,6 +341,37 @@ async function handleSave(req, res) {
   sendJSON(res, 200, { success: true, savedTo: saveDir, files: written });
 }
 
+// ── Session log ───────────────────────────────────────────────────────────────
+/**
+ * Stores the run sheet for one capture session: the prompt order, which words
+ * the speaker had no Banjara equivalent for, and the timings. The audio files
+ * cannot express any of that, and "this word has no Banjara form" is a finding
+ * worth keeping rather than an empty slot.
+ */
+async function handleSessionLog(req, res) {
+  let body;
+  try { body = await readBody(req, res); } catch { return; }
+
+  let payload;
+  try { payload = JSON.parse(body.toString('utf8')); }
+  catch { return sendJSON(res, 400, { error: 'Body must be JSON' }); }
+
+  if (!payload || !payload.folder || !payload.log) {
+    return sendJSON(res, 400, { error: 'Expected { folder, log } in the body' });
+  }
+
+  const dir = resolveInsideBase(payload.folder);
+  if (!dir) return sendJSON(res, 400, { error: 'Invalid folder path' });
+  mkdirSafe(dir);
+
+  const name = safeName(payload.name, 'session_log.json');
+  const target = path.join(dir, name);
+  fs.writeFileSync(target, JSON.stringify(payload.log, null, 2));
+
+  console.log(`[LOG] ${target}`);
+  sendJSON(res, 200, { success: true, savedTo: target });
+}
+
 // ── Request handler ───────────────────────────────────────────────────────────
 async function handler(req, res) {
   setCORS(res);
@@ -354,8 +395,9 @@ async function handler(req, res) {
       });
     }
 
-    if (req.method === 'POST' && pathname === '/save')    return await handleSave(req, res);
-    if (req.method === 'POST' && pathname === '/api/stt') return await handleSTT(req, res);
+    if (req.method === 'POST' && pathname === '/save')             return await handleSave(req, res);
+    if (req.method === 'POST' && pathname === '/api/stt')          return await handleSTT(req, res);
+    if (req.method === 'POST' && pathname === '/api/session-log')  return await handleSessionLog(req, res);
 
     if (req.method === 'GET' && serveStatic(res, pathname)) return;
 

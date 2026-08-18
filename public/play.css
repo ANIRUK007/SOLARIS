@@ -1,0 +1,650 @@
+/* play.css — the prompt-driven capture game.
+ *
+ * Structure follows a lesson-style flow: a segmented progress bar pinned to
+ * the top, one prompt filling the screen, a chunky primary action at the
+ * bottom, and a feedback sheet that slides up over it after each attempt.
+ *
+ * Built for a phone held one-handed: everything interactive sits in the
+ * lower third, and nothing important requires scrolling.
+ */
+
+:root {
+  --bg-deep:   #070f1c;
+  --bg-panel:  #0d1826;
+  --bg-card:   #122135;
+  --bg-input:  #0a1220;
+  --border:    #1e3454;
+  --border-hi: #2b5183;
+
+  --amber:  #f5a623;
+  --teal:   #2dd4bf;
+  --green:  #46d160;
+  --green-d:#2ea44a;
+  --red:    #ff4d4d;
+  --red-d:  #cc3838;
+  --blue:   #60a5fa;
+  --purple: #a78bfa;
+
+  --txt-1: #eaf2fb;
+  --txt-2: #7ea3c9;
+  --txt-3: #3d5c7d;
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  --r:  14px;
+  --rl: 20px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; height: 100%; }
+
+body {
+  background: var(--bg-deep);
+  color: var(--txt-1);
+  font-family: var(--sans);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  /* The game is a fixed viewport, not a scrolling document. */
+  position: fixed;
+  inset: 0;
+}
+
+button { font-family: inherit; touch-action: manipulation; }
+
+/* Ambient glow behind everything, so the flat dark does not read as dead. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(90% 55% at 50% -10%, rgba(45, 212, 191, .10), transparent 70%),
+    radial-gradient(70% 45% at 50% 110%, rgba(245, 166, 35, .08), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.screen {
+  position: relative;
+  z-index: 1;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: calc(10px + var(--safe-t)) calc(16px + var(--safe-r)) calc(12px + var(--safe-b)) calc(16px + var(--safe-l));
+  max-width: 620px;
+  margin: 0 auto;
+}
+.screen[hidden] { display: none; }
+
+/* ── TOP BAR ───────────────────────────────────────────────────────────────── */
+.topbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+.icon-btn {
+  width: 40px; height: 40px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--txt-2);
+  font-size: 22px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: color .15s, background .15s;
+}
+.icon-btn:active { background: rgba(255, 255, 255, .06); color: var(--txt-1); }
+
+/* Segmented progress: one notch per prompt, so the length of the task is
+   legible at a glance rather than a single indeterminate bar. */
+.segbar {
+  flex: 1;
+  display: flex;
+  gap: 3px;
+  height: 12px;
+  align-items: stretch;
+}
+.seg {
+  flex: 1;
+  background: var(--bg-input);
+  border-radius: 99px;
+  overflow: hidden;
+  position: relative;
+}
+.seg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 99px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1);
+}
+.seg.done::after   { background: linear-gradient(90deg, var(--green), var(--teal)); transform: scaleX(1); }
+.seg.skipped::after{ background: var(--txt-3); transform: scaleX(1); }
+.seg.current::after{ background: var(--amber); transform: scaleX(.35); }
+
+.streak {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--amber);
+  flex-shrink: 0;
+}
+.streak .flame { font-size: 17px; filter: saturate(1.2); display: inline-block; }
+.streak.pulse .flame { animation: flamePop .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes flamePop {
+  0%   { transform: scale(1) rotate(0); }
+  45%  { transform: scale(1.5) rotate(-9deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* ── PROMPT ────────────────────────────────────────────────────────────────── */
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  min-height: 0;
+  padding: 12px 0;
+}
+
+.instruction {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--txt-1);
+  text-align: center;
+}
+.instruction .lang { color: var(--amber); }
+
+.prompt-card {
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-panel));
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  padding: 26px 20px;
+  text-align: center;
+  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .04);
+  position: relative;
+  overflow: hidden;
+}
+/* Each new prompt slides in, so consecutive words never feel like the same
+   screen with different text. */
+.prompt-card.enter { animation: cardIn .38s cubic-bezier(.22, 1, .36, 1); }
+@keyframes cardIn {
+  from { opacity: 0; transform: translateX(34px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+.prompt-card.leave { animation: cardOut .22s ease-in forwards; }
+@keyframes cardOut {
+  to { opacity: 0; transform: translateX(-28px) scale(.97); }
+}
+
+.chip-cat {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--teal);
+  background: rgba(45, 212, 191, .1);
+  border: 1px solid rgba(45, 212, 191, .25);
+  border-radius: 99px;
+  padding: 4px 11px;
+  margin-bottom: 16px;
+}
+
+/* The Telugu word is the whole point of the screen — it gets the space. */
+.word-te {
+  font-size: clamp(44px, 15vw, 76px);
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--txt-1);
+  word-break: break-word;
+  margin-bottom: 10px;
+}
+.word-translit {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--amber);
+  margin-bottom: 4px;
+}
+.word-en { font-size: 15px; color: var(--txt-2); }
+
+.speak-btn {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 99px;
+  border: 1px solid var(--border-hi);
+  background: var(--bg-input);
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+}
+.speak-btn:active { transform: scale(.96); background: rgba(96, 165, 250, .12); }
+.speak-btn[hidden] { display: none; }
+
+/* ── LEVEL METER ───────────────────────────────────────────────────────────── */
+.meter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity .25s;
+}
+.meter-wrap.show { opacity: 1; }
+.meter-label { font-family: var(--mono); font-size: 11px; color: var(--txt-3); min-width: 42px; }
+.meter {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.meter-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--teal), var(--green));
+  transition: width .07s linear;
+}
+
+/* ── BOTTOM ACTIONS ────────────────────────────────────────────────────────── */
+.actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* Chunky pressable buttons: the bottom border is the "depth", and pressing
+   collapses it, which reads as a physical push on a touchscreen. */
+.btn {
+  width: 100%;
+  min-height: 58px;
+  border: none;
+  border-radius: var(--r);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: transform .06s ease, filter .15s, box-shadow .06s;
+}
+.btn:active:not(:disabled) { transform: translateY(4px); }
+
+.btn-primary {
+  background: var(--green);
+  color: #05240d;
+  box-shadow: 0 4px 0 var(--green-d);
+}
+.btn-primary:active:not(:disabled) { box-shadow: 0 0 0 var(--green-d); }
+
+.btn-rec {
+  background: var(--amber);
+  color: #2b1a02;
+  box-shadow: 0 4px 0 #c07d10;
+}
+.btn-rec:active:not(:disabled) { box-shadow: 0 0 0 #c07d10; }
+
+.btn-rec.recording {
+  background: var(--red);
+  color: #2d0606;
+  box-shadow: 0 4px 0 var(--red-d);
+  animation: recPulse 1.1s ease-in-out infinite;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 4px 0 var(--red-d), 0 0 0 0 rgba(255, 77, 77, .34); }
+  50%      { box-shadow: 0 4px 0 var(--red-d), 0 0 0 14px rgba(255, 77, 77, 0); }
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--txt-2);
+  border: 2px solid var(--border);
+  min-height: 48px;
+  font-size: 13px;
+  box-shadow: none;
+}
+.btn-ghost:active { background: rgba(255, 255, 255, .04); transform: translateY(2px); }
+
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.rec-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.btn-rec.recording .rec-dot { animation: blink .7s ease-in-out infinite; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+.timer {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .05em;
+}
+
+/* ── FEEDBACK SHEET ────────────────────────────────────────────────────────── */
+/* Slides up over the action area after each attempt, the way a lesson app
+   confirms an answer, so the verdict is impossible to miss. */
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 40;
+  padding: 18px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  border-top-left-radius: var(--rl);
+  border-top-right-radius: var(--rl);
+  transform: translateY(105%);
+  transition: transform .32s cubic-bezier(.22, 1, .36, 1);
+  border-top: 2px solid transparent;
+}
+.sheet.show { transform: translateY(0); }
+.sheet-inner { max-width: 620px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.sheet.good { background: #0e2a17; border-top-color: var(--green); }
+.sheet.bad  { background: #2a1010; border-top-color: var(--red); }
+.sheet.info { background: #12203a; border-top-color: var(--blue); }
+
+.sheet-head { display: flex; align-items: center; gap: 12px; }
+.sheet-icon {
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.sheet.good .sheet-icon { background: rgba(70, 209, 96, .18); color: var(--green); }
+.sheet.bad  .sheet-icon { background: rgba(255, 77, 77, .18);  color: var(--red); }
+.sheet.info .sheet-icon { background: rgba(96, 165, 250, .18); color: var(--blue); }
+
+.sheet-title { font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+.sheet.good .sheet-title { color: var(--green); }
+.sheet.bad  .sheet-title { color: var(--red); }
+.sheet.info .sheet-title { color: var(--blue); }
+.sheet-sub { font-size: 13px; color: var(--txt-2); margin-top: 3px; line-height: 1.45; }
+
+.xp-badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--amber);
+  flex-shrink: 0;
+  animation: xpPop .45s cubic-bezier(.2, 1.6, .4, 1);
+}
+@keyframes xpPop {
+  from { opacity: 0; transform: translateY(10px) scale(.7); }
+  to   { opacity: 1; transform: none; }
+}
+
+.sheet-row { display: flex; gap: 10px; }
+.sheet-row .btn { flex: 1; }
+
+.replay-btn {
+  width: 52px;
+  min-height: 58px;
+  flex: 0 0 52px !important;
+  border-radius: var(--r);
+  border: 2px solid var(--border-hi);
+  background: rgba(255, 255, 255, .04);
+  color: var(--txt-1);
+  font-size: 17px;
+  cursor: pointer;
+}
+.replay-btn:active { transform: translateY(3px); }
+
+.metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.metric {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 9px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--txt-2);
+  background: rgba(0, 0, 0, .2);
+}
+.metric.bad { color: var(--red); border-color: rgba(255, 77, 77, .3); }
+
+/* ── SETUP + COMPLETE SCREENS ──────────────────────────────────────────────── */
+.center-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 0;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; justify-content: center; }
+.brand-ring {
+  width: 44px; height: 44px;
+  border: 3px solid var(--amber);
+  border-radius: 50%;
+  display: grid; place-items: center;
+}
+.brand-dot { width: 12px; height: 12px; background: var(--amber); border-radius: 50%; animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.6); } }
+.brand h1 { font-family: var(--mono); font-size: 22px; letter-spacing: .18em; color: var(--amber); text-transform: uppercase; }
+
+.lede { text-align: center; font-size: 15px; color: var(--txt-2); line-height: 1.6; }
+
+.field-group { display: flex; flex-direction: column; gap: 8px; }
+.field-group label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--txt-2);
+}
+.field-group input, .field-group select {
+  width: 100%;
+  background: var(--bg-input);
+  border: 2px solid var(--border);
+  border-radius: var(--r);
+  color: var(--txt-1);
+  font-family: var(--mono);
+  font-size: 16px;             /* below 16px, iOS zooms the page on focus */
+  padding: 14px;
+  min-height: 54px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color .18s;
+}
+.field-group input:focus, .field-group select:focus { border-color: var(--amber); }
+.field-group select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%237ea3c9' stroke-width='1.7' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  padding-right: 40px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+  cursor: pointer;
+}
+.toggle-row .t-text { flex: 1; }
+.toggle-row .t-title { font-size: 14px; font-weight: 600; }
+.toggle-row .t-sub { font-size: 12px; color: var(--txt-3); margin-top: 2px; line-height: 1.4; }
+.switch {
+  width: 52px; height: 30px;
+  border-radius: 99px;
+  background: var(--bg-input);
+  border: 2px solid var(--border);
+  position: relative;
+  flex-shrink: 0;
+  transition: background .2s, border-color .2s;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--txt-3);
+  transition: transform .22s cubic-bezier(.22, 1, .36, 1), background .2s;
+}
+.toggle-row.on .switch { background: rgba(70, 209, 96, .18); border-color: var(--green); }
+.toggle-row.on .switch::after { transform: translateX(22px); background: var(--green); }
+
+.srv-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid;
+}
+.srv-state.ok       { color: var(--green); border-color: rgba(70, 209, 96, .3);  background: rgba(70, 209, 96, .07); }
+.srv-state.err      { color: var(--red);   border-color: rgba(255, 77, 77, .3);  background: rgba(255, 77, 77, .07); }
+.srv-state.checking { color: var(--amber); border-color: rgba(245, 166, 35, .3); background: rgba(245, 166, 35, .07); }
+.srv-state .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ── COMPLETE ──────────────────────────────────────────────────────────────── */
+.trophy {
+  font-size: 74px;
+  text-align: center;
+  line-height: 1;
+  animation: trophyIn .6s cubic-bezier(.2, 1.5, .4, 1);
+}
+@keyframes trophyIn {
+  from { opacity: 0; transform: scale(.3) rotate(-18deg); }
+  to   { opacity: 1; transform: none; }
+}
+.complete-title { text-align: center; font-size: 27px; font-weight: 800; letter-spacing: -.02em; }
+.complete-sub { text-align: center; font-size: 14px; color: var(--txt-2); }
+
+.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.stat {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 14px;
+  text-align: center;
+}
+.stat .v { font-family: var(--mono); font-size: 25px; font-weight: 700; line-height: 1.1; }
+.stat .k {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-top: 6px;
+}
+.stat.xp .v      { color: var(--amber); }
+.stat.acc .v     { color: var(--green); }
+.stat.streak .v  { color: var(--red); }
+.stat.time .v    { color: var(--blue); }
+
+.queue-note {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+  color: var(--amber);
+  background: rgba(245, 166, 35, .08);
+  border: 1px solid rgba(245, 166, 35, .25);
+  border-radius: var(--r);
+  padding: 10px;
+}
+.queue-note[hidden] { display: none; }
+
+/* Celebration burst on completion. Pure CSS so there is no library to load
+   on a phone with no signal. */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 60; overflow: hidden; }
+.confetti span {
+  position: absolute;
+  top: -12vh;
+  width: 9px;
+  height: 15px;
+  border-radius: 2px;
+  animation: fall linear forwards;
+}
+@keyframes fall {
+  to { transform: translateY(115vh) rotate(760deg); opacity: .15; }
+}
+
+/* ── MISC ──────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + var(--safe-b));
+  transform: translate(-50%, 20px);
+  z-index: 70;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hi);
+  color: var(--txt-1);
+  font-size: 13px;
+  padding: 11px 18px;
+  border-radius: 99px;
+  opacity: 0;
+  transition: opacity .22s, transform .22s;
+  pointer-events: none;
+  max-width: 88vw;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.err-box {
+  background: rgba(255, 77, 77, .08);
+  border: 1px solid rgba(255, 77, 77, .3);
+  color: var(--red);
+  border-radius: var(--r);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.err-box[hidden] { display: none; }
+
+.link-row { text-align: center; }
+.link-row a { color: var(--txt-3); font-size: 12px; text-decoration: none; border-bottom: 1px solid var(--txt-3); }
+
+/* Short landscape phones: shrink the hero so the button stays on screen. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .word-te { font-size: clamp(30px, 7vh, 44px); }
+  .prompt-card { padding: 14px; }
+  .stage { gap: 10px; padding: 6px 0; }
+  .btn { min-height: 50px; }
+  .instruction { font-size: 16px; }
+  .trophy { font-size: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

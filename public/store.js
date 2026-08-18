@@ -96,11 +96,17 @@
       const fd = new FormData();
       fd.append('folderPath', record.folder);
       fd.append('banjara',    record.blobs.banjara, record.names.banjara);
-      fd.append('telugu',     record.blobs.telugu,  record.names.telugu);
       fd.append('transcript', new Blob([record.transcript || ''], { type: 'text/plain;charset=utf-8' }), record.names.transcript);
       fd.append('bnj_name',   record.names.banjara);
-      fd.append('tel_name',   record.names.telugu);
       fd.append('txt_name',   record.names.transcript);
+
+      // Telugu audio is optional. In the prompt-driven session the Telugu side
+      // is the written prompt, and only the Banjara response is spoken, so
+      // there may be no Telugu take at all.
+      if (record.blobs.telugu) {
+        fd.append('telugu',   record.blobs.telugu, record.names.telugu);
+        fd.append('tel_name', record.names.telugu);
+      }
 
       // The unfiltered takes are archived next to the cleaned ones. Filtering
       // is lossy and its thresholds may well be retuned later, so the source
