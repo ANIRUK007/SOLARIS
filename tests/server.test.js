@@ -50,17 +50,19 @@ test('GET /health reports status and configured engines', async () => {
   assert.deepStrictEqual(j.engines, { sarvam: false, groq: false });
 });
 
-test('GET / serves the mobile interface', async () => {
+test('GET / serves the app, opening on the account screen', async () => {
   const r = await fetch(BASE + '/');
   const body = await r.text();
   assert.strictEqual(r.status, 200);
   assert.ok(r.headers.get('content-type').startsWith('text/html'));
   assert.ok(body.includes('SOLARIS'), 'expected the app shell');
   assert.ok(body.includes('app.js'), 'expected the app script tag');
+  assert.ok(body.includes('screen-auth'), 'expected the account screen');
+  assert.ok(body.includes('screen-portal'), 'expected the portal');
 });
 
 test('static assets are served from public/', async () => {
-  for (const asset of ['dsp.js', 'store.js', 'styles.css', 'manifest.webmanifest']) {
+  for (const asset of ['dsp.js', 'store.js', 'auth.js', 'theme.css', 'app.css', 'packs/index.json', 'manifest.webmanifest']) {
     const r = await fetch(`${BASE}/${asset}`);
     assert.strictEqual(r.status, 200, `${asset} returned ${r.status}`);
   }
@@ -197,6 +199,9 @@ test('unknown routes return 404 JSON', async () => {
       ...process.env,
       PORT: String(PORT),
       SOLARIS_DATASET_DIR: DATASET,
+      // Isolate accounts: a store left over from another run would make these
+      // requests require a token.
+      SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
       SARVAM_API_KEY: '',
       GROQ_API_KEY: '',
       SSL_CERT: path.join(DATASET, 'no-cert'),   // force plain HTTP for the test

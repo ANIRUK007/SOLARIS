@@ -8,6 +8,10 @@ them, and build a speech AI pipeline using Telugu as a pivot language.
 This branch (`mobile`) is the phone-capable version. Fieldwork happens where the speakers
 are, so the interface has to run on the handset a researcher is already carrying.
 
+The app opens on an account screen. Once signed in you land on a portal of word-set cards;
+tapping one starts a session where a Telugu word fills the screen and the speaker says it
+in Banjara. That is the whole loop.
+
 ---
 
 ## Rotate the old API keys first
@@ -59,6 +63,52 @@ mkcert -key-file certs/key.pem -cert-file certs/cert.pem localhost 192.168.1.42
 
 ---
 
+## The app
+
+```
+open  ─►  sign in / sign up      every recording is attributed to an account
+          │
+          ▼
+       portal                    level and XP, the speaker being recorded,
+          │                      and a card per word set with its progress
+          ▼
+       session                   one Telugu prompt at a time, recorded in
+          │                      Banjara, graded on the spot
+          ▼
+       complete                  XP earned, then back to the portal
+```
+
+A word set is a JSON file in `public/packs/`, listed in `public/packs/index.json`. Add a
+file there and it appears as a card — no code change. Each item needs an `id` safe for use
+as a folder name, the Telugu text, and ideally a transliteration and gloss:
+
+```json
+{ "id": "amma", "te": "అమ్మ", "translit": "amma", "en": "mother", "segment": "relation" }
+```
+
+Progress is tracked per speaker, so a half-finished set resumes where that speaker stopped
+rather than starting over. A word marked "no Banjara word for this" counts as answered —
+that a Telugu concept has no Banjara equivalent is a finding, and it is kept in the session
+log rather than silently dropped.
+
+## Accounts
+
+The first sign-up on a fresh server becomes the first account and is signed straight in.
+After that, registration is closed to strangers: an existing user has to create the account.
+Otherwise anyone who could reach the network could enrol themselves, which would make the
+sign-in decorative.
+
+Passwords are hashed with scrypt and a per-user salt. Tokens are HMAC-signed with a server
+secret and expire after 30 days. The account store sits next to `server.js`, not in the
+dataset — the dataset gets copied and shared, and password hashes should not travel with it.
+
+The server stamps who recorded each session from the token, overwriting whatever the client
+claimed. Provenance the client can edit is not provenance.
+
+**What this is not:** there is no password reset, no rate limiting and no token revocation.
+A token stays valid until it expires. That is a reasonable trade for a trusted LAN; if this
+is ever exposed more widely it needs all three before it should be.
+
 ## What happens to a recording
 
 ```
@@ -67,13 +117,18 @@ getUserMedia ──► MediaRecorder ──► decode ──► resample to 16 k
                                                       ▼
                               background + noise removal  (public/dsp.js)
                                                       │
-                    ┌─────────────────────────────────┼──────────────────┐
-                    ▼                                 ▼                  ▼
-              quality grade                    Telugu transcription    WAV encode
-                                               (POST /api/stt)              │
-                                                                            ▼
-                                                          POST /save ──► dataset/
+                            ┌─────────────────────────┴─────────────┐
+                            ▼                                       ▼
+                      quality grade                            WAV encode
+                   (verdict on the spot)                            │
+                                                                    ▼
+                                                    POST /save ──► dataset/
 ```
+
+No speech-to-text is involved. The Telugu prompt shown on screen *is* the transcript, so the
+pairing is known before the speaker says anything — no API key, no round trip, nothing to
+correct afterwards. The `/api/stt` proxy is still there for the legacy capture console under
+`legacy/`, and stays unused by this app.
 
 Both the cleaned and the original takes are written to disk. Filtering is lossy and its
 thresholds are likely to be retuned later, so the source audio is always archived alongside
@@ -145,14 +200,17 @@ The queue, the retry logic and every caller depend only on `available()` and `pu
 ### Layout on disk
 
 ```
-dataset/speakers/SPK001/sessions/session_01/అ/
-├── SPK001_అ_place_banjara.wav        cleaned
-├── SPK001_అ_place_telugu.wav         cleaned
-├── SPK001_అ_place_banjara_raw.wav    original
-├── SPK001_అ_place_telugu_raw.wav     original
-├── SPK001_అ_place_telugu.txt         transcription
-└── session.json                       speaker, scores, durations, filter settings
+dataset/speakers/SPK042/sessions/session_01/
+├── amma/
+│   ├── SPK042_amma_banjara.wav       cleaned
+│   ├── SPK042_amma_banjara_raw.wav   original
+│   ├── SPK042_amma_telugu.txt        the prompt, which is the transcript
+│   └── session.json                  scores, durations, filter settings, who recorded it
+├── nanna/ …
+└── session_01_log.json               prompt order, skips, timings, XP
 ```
+
+With **+ Telugu** enabled, each word also gets `_telugu.wav` and `_telugu_raw.wav`.
 
 ---
 
@@ -172,7 +230,9 @@ dataset/speakers/SPK001/sessions/session_01/అ/
 | Lost work on a stray back-swipe | Unload guard while a take is in progress |
 | Screen sleeping mid-recording | Wake Lock held while recording |
 
-The original desktop page is kept at `legacy/desktop-index.html` for reference.
+The earlier interfaces are kept under `legacy/` for reference: `desktop-index.html` is the
+original single-file page, and `capture-*.js/css/html` is the dense form-based capture
+console this app replaced.
 
 ---
 
@@ -210,6 +270,7 @@ All optional; read from the environment or a `.env` file next to `server.js`.
 | `SARVAM_MODEL` | `saarika:v2.5` | |
 | `GROQ_MODEL` | `whisper-large-v3-turbo` | |
 | `SSL_CERT` / `SSL_KEY` | `./certs/*.pem` | HTTPS; falls back to HTTP if absent |
+| `SOLARIS_USERS_FILE` | `./.solaris-users.json` | Account store (hashes and token secret) |
 
 With no key configured the app says so and falls back to manual transcription rather than
 failing the session.
@@ -221,12 +282,18 @@ failing the session.
 | `GET` | `/health` | `{ status, basePath, secure, engines }` |
 | `POST` | `/save` | multipart: audio + transcript + metadata → dataset |
 | `POST` | `/api/stt` | multipart: `file`, `engine` → `{ transcript }` |
+| `POST` | `/api/auth/register` | `{username, password, displayName}` → `{user, token}` |
+| `POST` | `/api/auth/login` | `{username, password}` → `{user, token}` |
+| `GET` | `/api/auth/me` | bearer token → `{user}` |
+| `POST` | `/api/session-log` | the run sheet for one session → `{profile}` |
+
+`/save`, `/api/stt` and `/api/session-log` require a bearer token once an account exists.
 
 ## Branches
 
 | Branch | Contents |
 | --- | --- |
-| `mobile` | This version — mobile-capable, on-device filtering, storage seam |
+| `mobile` | This version — account-gated portal, on-device filtering, storage seam |
 | `main` | Original single-file desktop interface |
 | `working_proto`, `current_workingproto` | Near-identical earlier copies of `main` |
 | `prototype_01` | Earlier single-file `solaris.html` |

@@ -1,0 +1,48 @@
+{
+  "id": "village",
+  "name": "Around the Village",
+  "icon": "🏞️",
+  "accent": "cyan",
+  "description": "Places and landscape — house, village, forest, river, hill.",
+  "language": {
+    "prompt": "te",
+    "response": "bnj"
+  },
+  "items": [
+    {
+      "id": "illu",
+      "te": "ఇల్లు",
+      "translit": "illu",
+      "en": "house",
+      "segment": "place"
+    },
+    {
+      "id": "ooru",
+      "te": "ఊరు",
+      "translit": "ūru",
+      "en": "village",
+      "segment": "place"
+    },
+    {
+      "id": "adavi",
+      "te": "అడవి",
+      "translit": "aḍavi",
+      "en": "forest",
+      "segment": "place"
+    },
+    {
+      "id": "nadi",
+      "te": "నది",
+      "translit": "nadi",
+      "en": "river",
+      "segment": "place"
+    },
+    {
+      "id": "konda",
+      "te": "కొండ",
+      "translit": "koṇḍa",
+      "en": "hill",
+      "segment": "place"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "things",
+  "name": "Everyday Things",
+  "icon": "🔥",
+  "accent": "gold",
+  "description": "Objects handled every day: water, food, fire, a book.",
+  "language": {
+    "prompt": "te",
+    "response": "bnj"
+  },
+  "items": [
+    {
+      "id": "neeru",
+      "te": "నీరు",
+      "translit": "nīru",
+      "en": "water",
+      "segment": "object"
+    },
+    {
+      "id": "annam",
+      "te": "అన్నం",
+      "translit": "annaṁ",
+      "en": "cooked rice",
+      "segment": "object"
+    },
+    {
+      "id": "pustakam",
+      "te": "పుస్తకం",
+      "translit": "pustakaṁ",
+      "en": "book",
+      "segment": "object"
+    },
+    {
+      "id": "nippu",
+      "te": "నిప్పు",
+      "translit": "nippu",
+      "en": "fire",
+      "segment": "object"
+    }
+  ]
+}

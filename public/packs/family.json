@@ -1,0 +1,41 @@
+{
+  "id": "family",
+  "name": "Family & People",
+  "icon": "👪",
+  "accent": "hot",
+  "description": "Kinship terms — usually the most distinct vocabulary in a spoken language.",
+  "language": {
+    "prompt": "te",
+    "response": "bnj"
+  },
+  "items": [
+    {
+      "id": "amma",
+      "te": "అమ్మ",
+      "translit": "amma",
+      "en": "mother",
+      "segment": "relation"
+    },
+    {
+      "id": "nanna",
+      "te": "నాన్న",
+      "translit": "nānna",
+      "en": "father",
+      "segment": "relation"
+    },
+    {
+      "id": "anna",
+      "te": "అన్న",
+      "translit": "anna",
+      "en": "elder brother",
+      "segment": "relation"
+    },
+    {
+      "id": "akka",
+      "te": "అక్క",
+      "translit": "akka",
+      "en": "elder sister",
+      "segment": "relation"
+    }
+  ]
+}

@@ -2,228 +2,192 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<!-- viewport-fit=cover lets the page paint under the notch; the CSS then
-     pads content back out with env(safe-area-inset-*). -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#120a2a" />
+<meta name="theme-color" content="#0b0420" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="SOLARIS" />
 <meta name="format-detection" content="telephone=no" />
-<title>SOLARIS — Data Collection</title>
+<title>SOLARIS</title>
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="theme.css" />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="app.css" />
 </head>
 <body>
 
-<header>
-  <div class="logo-ring"><div class="logo-dot"></div></div>
-  <div class="hdr-text">
-    <h1>SOLARIS</h1>
-    <p>Speech-Oriented Language Archival &amp; Reasoning Infrastructure · Nexus Research Lab, MCET Hyderabad</p>
+<!-- ══ SIGN IN ════════════════════════════════════════════════════════════ -->
+<section class="screen" id="screen-auth" hidden>
+  <div class="center-col">
+    <div class="brand">
+      <div class="brand-ring"><div class="brand-dot"></div></div>
+      <h1>SOLARIS</h1>
+    </div>
+
+    <p class="lede" id="authLede">Sign in to record.</p>
+
+    <div class="field-group">
+      <label for="auth-user">Username</label>
+      <input id="auth-user" type="text" maxlength="32" autocomplete="username"
+             autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="fieldworker" />
+    </div>
+
+    <div class="field-group">
+      <label for="auth-pass">Password</label>
+      <input id="auth-pass" type="password" autocomplete="current-password"
+             enterkeyhint="go" placeholder="••••••••" />
+    </div>
+
+    <div class="field-group" id="authNameRow" hidden>
+      <label for="auth-name">Display name</label>
+      <input id="auth-name" type="text" maxlength="60" autocomplete="name"
+             enterkeyhint="go" placeholder="Your name" />
+    </div>
+
+    <div class="err-box" id="authErr" hidden></div>
+
+    <span class="srv-state checking" id="srvState"><span class="dot"></span><span id="srvLbl">checking…</span></span>
   </div>
-  <div class="hdr-right">
-    <a class="srv-pill" href="play.html" style="color:var(--amber);border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.07);text-decoration:none">▶ Word session</a>
-    <span class="srv-pill" id="userPill" hidden></span>
-    <span class="srv-pill checking" id="srvPill">
-      <span class="srv-dot"></span><span id="srvLbl">checking…</span>
-    </span>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="btnAuthSubmit" type="button">Sign In</button>
+    <button class="btn btn-ghost" id="btnAuthToggle" type="button">Create an account instead</button>
   </div>
-</header>
+</section>
 
-<main>
-
-  <!-- STEP 1 · METADATA -->
-  <section class="card" id="card-meta">
-    <div class="card-hdr toggle" id="metaToggle" role="button" tabindex="0" aria-expanded="true" aria-controls="metaBody">
-      <span>⊞</span>
-      <h2>Session Metadata</h2>
-      <span class="badge" id="metaSummary">STEP 1</span>
-      <span class="chev" aria-hidden="true">▾</span>
+<!-- ══ PORTAL ═════════════════════════════════════════════════════════════ -->
+<section class="screen scrolls" id="screen-portal" hidden>
+  <header class="portal-top">
+    <div class="avatar" id="userAvatar">?</div>
+    <div class="who">
+      <div class="who-name" id="userName">—</div>
+      <div class="who-lvl" id="userLevel">Level 1</div>
     </div>
-    <div class="card-body" id="metaBody">
-      <div class="fgrid">
-        <div class="field">
-          <label for="spk-id">Speaker ID</label>
-          <input id="spk-id" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="done" />
-        </div>
-        <div class="field">
-          <label for="tel-letter">Telugu Letter</label>
-          <select id="tel-letter"></select>
-        </div>
-        <div class="field">
-          <label for="seg-type">Segment Type</label>
-          <select id="seg-type">
-            <option value="place">Place</option>
-            <option value="animal">Animal</option>
-            <option value="object">Object</option>
-            <option value="abstract">Abstract</option>
-            <option value="pronoun">Pronouns</option>
-            <option value="verb">Verbs</option>
-            <option value="adjective">Adjectives</option>
-            <option value="adverb">Adverbs</option>
-            <option value="preposition">Prepositions</option>
-            <option value="conjunction">Conjunctions</option>
-            <option value="interjection">Interjections</option>
-            <option value="relation">Relations</option>
-            <option value="time">Time</option>
-            <option value="number">Numbers</option>
-            <option value="sentence">Sentences</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="sess-num">Session Number</label>
-          <input id="sess-num" type="number" inputmode="numeric" min="1" max="999" enterkeyhint="done" />
+    <button class="icon-btn" id="btnSignOut" type="button" aria-label="Sign out" title="Sign out">⏻</button>
+  </header>
+
+  <div class="portal-body">
+    <!-- Progress toward the next level -->
+    <div class="card level-card">
+      <div class="level-row">
+        <span class="level-badge" id="levelBadge">1</span>
+        <div class="level-bar-wrap">
+          <div class="level-meta">
+            <span id="xpNow">0 XP</span>
+            <span id="xpNext">120 XP to level 2</span>
+          </div>
+          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
         </div>
       </div>
-
-      <div class="fn-box">
-        <div class="fn-lbl">Generated Filenames</div>
-        <div class="fn-row"><span class="fn-type">BNJ</span><span class="fn-name" id="fn-b">—</span></div>
-        <div class="fn-row"><span class="fn-type">TEL</span><span class="fn-name" id="fn-t">—</span></div>
-        <div class="fn-row"><span class="fn-type">TXT</span><span class="fn-name" id="fn-x">—</span></div>
-      </div>
-
-      <div class="path-box">
-        <span class="path-icon">📁</span>
-        <div>
-          <div class="path-text" id="savePath">—</div>
-          <div class="path-sub">Saved on the machine running the server, under its dataset folder.</div>
-        </div>
+      <div class="stat-row">
+        <div class="mini"><span class="mini-v" id="miniWords">0</span><span class="mini-k">words</span></div>
+        <div class="mini"><span class="mini-v" id="miniSessions">0</span><span class="mini-k">sessions</span></div>
+        <div class="mini"><span class="mini-v" id="miniStreak">0</span><span class="mini-k">best streak</span></div>
       </div>
     </div>
-  </section>
 
-  <!-- STEP 2 · RECORDING -->
-  <section class="card">
-    <div class="card-hdr"><span>🎙</span><h2>Audio Recording</h2><span class="badge">STEP 2</span></div>
-    <div class="card-body">
-      <div class="rec-grid">
-        <div class="rec-panel" id="panelB">
-          <div class="rec-title">
-            Banjara <span class="lang-tag bnj">BNJ</span>
-            <span class="rec-check" id="checkB">✓</span>
-          </div>
-          <button class="btn-rec" id="btnB" type="button">
-            <span class="rec-dot"></span><span id="lblB">Start Recording</span>
-          </button>
-          <div class="rec-meta">
-            <span class="rec-timer" id="timerB">00:00</span>
-            <span class="level-track"><span class="level-bar" id="levelB"></span></span>
-          </div>
-          <div class="player" id="playerB">
-            <button class="btn-play" id="playB" type="button" aria-label="Play Banjara recording">▶</button>
-            <div class="wave-wrap"><canvas id="waveB"></canvas></div>
-          </div>
-          <button class="btn-rerec" id="rerecB" type="button">↺ Re-record</button>
-          <div class="alert err" id="errB"></div>
-        </div>
-
-        <div class="rec-panel" id="panelT">
-          <div class="rec-title">
-            Telugu <span class="lang-tag tel">TEL</span>
-            <span class="rec-check" id="checkT">✓</span>
-          </div>
-          <button class="btn-rec" id="btnT" type="button">
-            <span class="rec-dot"></span><span id="lblT">Start Recording</span>
-          </button>
-          <div class="rec-meta">
-            <span class="rec-timer" id="timerT">00:00</span>
-            <span class="level-track"><span class="level-bar" id="levelT"></span></span>
-          </div>
-          <div class="player" id="playerT">
-            <button class="btn-play" id="playT" type="button" aria-label="Play Telugu recording">▶</button>
-            <div class="wave-wrap"><canvas id="waveT"></canvas></div>
-          </div>
-          <button class="btn-rerec" id="rerecT" type="button">↺ Re-record</button>
-          <div class="alert err" id="errT"></div>
-        </div>
+    <!-- Who is being recorded -->
+    <div class="card speaker-card">
+      <label class="card-label" for="portal-speaker">Recording speaker</label>
+      <div class="speaker-row">
+        <input id="portal-speaker" type="text" maxlength="20" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" enterkeyhint="done" placeholder="SPK001" />
+        <button class="chip-toggle" id="toggleTelugu" type="button" role="switch" aria-checked="false">+ Telugu</button>
       </div>
-
-      <!-- Which version you hear. Both are always archived. -->
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="Audio version">
-          <button class="seg-btn on" id="segClean" type="button">Cleaned</button>
-          <button class="seg-btn"    id="segRaw"   type="button">Original</button>
-        </div>
-        <span class="filter-note">Background and hiss removed on-device. Both versions are saved.</span>
-      </div>
+      <p class="card-hint">The person speaking Banjara. Change it when a new speaker sits down.
+        <strong>+ Telugu</strong> also records a Telugu take of each word.</p>
     </div>
-  </section>
 
-  <!-- TRANSCRIPTION -->
-  <section class="card">
-    <div class="card-hdr"><span>✦</span><h2>Telugu Transcription</h2><span class="badge">AUTO + EDITABLE</span></div>
-    <div class="card-body">
-      <div class="trans-row">
-        <div class="spinner" id="tspinner"></div>
-        <span id="tstatus">Waiting for Telugu audio…</span>
-      </div>
-      <textarea id="trans-text" rows="3" lang="te" placeholder="Telugu transcription appears here after recording. You may edit it before submitting."></textarea>
-      <div class="api-row">
-        <span>STT Engine:</span>
-        <button class="chip on" id="chipSarvam" type="button">Sarvam (te-IN)</button>
-        <button class="chip"    id="chipGroq"   type="button">Groq Whisper</button>
-      </div>
-      <div class="alert err" id="errTrans"></div>
+    <h2 class="section-title">Word sets</h2>
+    <div class="pack-grid" id="packGrid"></div>
+
+    <div class="queue-note" id="portalQueue" hidden></div>
+  </div>
+</section>
+
+<!-- ══ SESSION ════════════════════════════════════════════════════════════ -->
+<section class="screen" id="screen-play" hidden>
+  <div class="topbar">
+    <button class="icon-btn" id="btnQuit" type="button" aria-label="End session">✕</button>
+    <div class="segbar" id="segbar" role="progressbar" aria-label="Session progress"></div>
+    <div class="streak-pill" id="streakBox" title="Consecutive good takes">
+      <span class="flame">🔥</span><span id="streakVal">0</span>
     </div>
-  </section>
+  </div>
 
-  <!-- QUALITY -->
-  <section class="card">
-    <div class="card-hdr"><span>◈</span><h2>Audio Quality</h2><span class="badge">AUTO · GRADING</span></div>
-    <div class="card-body">
-      <div class="conf-grid">
-        <div class="conf-block">
-          <div class="conf-hdr"><span class="conf-label">Banjara</span><span class="conf-score" id="scoreB">—</span></div>
-          <div class="prog-track"><div class="prog-bar" id="barB"></div></div>
-          <div class="conf-metrics" id="metricsB"></div>
-        </div>
-        <div class="conf-block">
-          <div class="conf-hdr"><span class="conf-label">Telugu</span><span class="conf-score" id="scoreT">—</span></div>
-          <div class="prog-track"><div class="prog-bar" id="barT"></div></div>
-          <div class="conf-metrics" id="metricsT"></div>
-        </div>
-      </div>
-      <div class="alert warn" id="warnQuality">⚠ Audio quality is too low. Please re-record before submitting.</div>
+  <div class="stage">
+    <div class="instruction" id="instruction">Say this in <span class="lang">Banjara</span></div>
+
+    <div class="prompt-card" id="promptCard">
+      <span class="chip-cat" id="promptCat">—</span>
+      <div class="word-te" id="promptWord" lang="te">—</div>
+      <div class="word-translit" id="promptTranslit"></div>
+      <div class="word-en" id="promptEn"></div>
+      <button class="speak-btn" id="btnSpeak" type="button" hidden>🔊 Hear it in Telugu</button>
     </div>
-  </section>
 
-  <!-- STEP 3 · RESULT -->
-  <section class="card">
-    <div class="card-hdr"><span>↑</span><h2>Save to Dataset</h2><span class="badge">STEP 3</span></div>
-    <div class="card-body">
-      <div class="alert err" id="errSubmit"></div>
-      <div class="alert err" id="errSave"></div>
-      <div id="success-panel">
-        <h3>✓ Files Saved</h3>
-        <div id="sfiles"></div>
-        <div id="upload-note"></div>
-      </div>
-      <div class="path-sub" id="idleNote">Record both languages, then use the Save button at the bottom of the screen.</div>
+    <div class="meter-wrap" id="meterWrap">
+      <span class="meter-label" id="recTimer">00:00</span>
+      <span class="meter"><span class="meter-bar" id="meterBar"></span></span>
     </div>
-  </section>
 
-</main>
+    <div class="err-box" id="playErr" hidden></div>
+  </div>
 
-<!-- Sticky action bar — keeps the primary action reachable without scrolling. -->
-<div class="actionbar">
-  <div class="actionbar-inner">
-    <button id="btn-submit" type="button" disabled>
-      <span id="submitIcon">⊘</span>
-      <span id="submitLbl">Awaiting Recordings</span>
+  <div class="actions">
+    <button class="btn btn-rec" id="btnRecord" type="button">
+      <span class="rec-dot"></span><span id="recLabel">Tap to record</span>
     </button>
-    <button class="queue-pill" id="queuePill" type="button" title="Retry queued uploads">
-      <span id="queueCount">0</span> queued ↻
-    </button>
+    <button class="btn btn-ghost" id="btnSkip" type="button">No Banjara word for this</button>
+  </div>
+</section>
+
+<!-- ══ COMPLETE ═══════════════════════════════════════════════════════════ -->
+<section class="screen" id="screen-done" hidden>
+  <div class="center-col">
+    <div class="trophy" id="trophy">🏆</div>
+    <div class="complete-title" id="doneTitle">Session complete</div>
+    <div class="complete-sub" id="doneSub">Every word recorded and saved.</div>
+
+    <div class="stat-grid">
+      <div class="stat xp"><div class="v" id="statXp">0</div><div class="k">XP earned</div></div>
+      <div class="stat acc"><div class="v" id="statRecorded">0</div><div class="k">Words recorded</div></div>
+      <div class="stat best"><div class="v" id="statStreak">0</div><div class="k">Best streak</div></div>
+      <div class="stat time"><div class="v" id="statTime">0m</div><div class="k">Time spent</div></div>
+    </div>
+
+    <div class="queue-note" id="queueNote" hidden></div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="btnHome" type="button">Back to Word Sets</button>
+  </div>
+</section>
+
+<!-- Feedback sheet, shared by all verdicts -->
+<div class="sheet" id="sheet">
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <div class="sheet-icon" id="sheetIcon">✓</div>
+      <div>
+        <div class="sheet-title" id="sheetTitle">Nice!</div>
+        <div class="sheet-sub" id="sheetSub"></div>
+      </div>
+      <div class="xp-badge" id="sheetXp" hidden>+0 XP</div>
+    </div>
+    <div class="metrics" id="sheetMetrics"></div>
+    <div class="sheet-row">
+      <button class="replay-btn" id="btnReplay" type="button" aria-label="Play the recording back">▶</button>
+      <button class="btn btn-ghost" id="btnRetry" type="button">Retry</button>
+      <button class="btn btn-primary" id="btnContinue" type="button">Continue</button>
+    </div>
   </div>
 </div>
 
-<!-- dsp.js and store.js publish the globals app.js uses on startup, so order matters. -->
+<div class="toast" id="toast"></div>
+
 <script src="auth.js"></script>
 <script src="dsp.js"></script>
 <script src="store.js"></script>

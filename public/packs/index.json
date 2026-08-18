@@ -1,0 +1,58 @@
+{
+  "packs": [
+    {
+      "id": "family",
+      "file": "family.json",
+      "name": "Family & People",
+      "icon": "👪",
+      "accent": "hot",
+      "description": "Kinship terms — usually the most distinct vocabulary in a spoken language.",
+      "count": 4
+    },
+    {
+      "id": "animals",
+      "file": "animals.json",
+      "name": "Animals",
+      "icon": "🐘",
+      "accent": "lime",
+      "description": "Creatures a speaker names from daily life, not from a book.",
+      "count": 5
+    },
+    {
+      "id": "village",
+      "file": "village.json",
+      "name": "Around the Village",
+      "icon": "🏞️",
+      "accent": "cyan",
+      "description": "Places and landscape — house, village, forest, river, hill.",
+      "count": 5
+    },
+    {
+      "id": "things",
+      "file": "things.json",
+      "name": "Everyday Things",
+      "icon": "🔥",
+      "accent": "gold",
+      "description": "Objects handled every day: water, food, fire, a book.",
+      "count": 4
+    },
+    {
+      "id": "counting",
+      "file": "counting.json",
+      "name": "Numbers & Time",
+      "icon": "🕒",
+      "accent": "violet",
+      "description": "Counting and time words, where borrowing from Telugu is most likely.",
+      "count": 6
+    },
+    {
+      "id": "actions",
+      "file": "actions.json",
+      "name": "Actions",
+      "icon": "🚶",
+      "accent": "hot",
+      "description": "Verbs — eat, walk, sing.",
+      "count": 3
+    }
+  ]
+}

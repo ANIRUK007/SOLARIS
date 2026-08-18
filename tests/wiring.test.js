@@ -15,9 +15,7 @@ const html = fs.readFileSync(path.join(pub, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(pub, 'manifest.webmanifest'), 'utf8'));
-const playHtml = fs.readFileSync(path.join(pub, 'play.html'), 'utf8');
-const playJs = fs.readFileSync(path.join(pub, 'play.js'), 'utf8');
-const pack = JSON.parse(fs.readFileSync(path.join(pub, 'packs', 'starter.json'), 'utf8'));
+const packIndex = JSON.parse(fs.readFileSync(path.join(pub, 'packs', 'index.json'), 'utf8'));
 
 let passed = 0;
 function test(name, fn) {
@@ -41,27 +39,28 @@ test('every id used by app.js exists in index.html', () => {
 
   // Direct lookups: $('some-id')
   for (const m of app.matchAll(/\$\('([^']+)'\)/g)) {
-    if (!htmlIds.has(m[1])) missing.add(m[1]);
+    const id = m[1];
+    if (id.startsWith('screen-')) continue;
+    if (!htmlIds.has(id)) missing.add(id);
   }
 
-  // Per-side lookups: $('btn' + side) etc., which resolve to two ids each.
-  for (const m of app.matchAll(/\$\('([a-zA-Z-]+)'\s*\+\s*side\)/g)) {
-    for (const side of ['B', 'T']) {
-      if (!htmlIds.has(m[1] + side)) missing.add(m[1] + side);
-    }
+  // Screens are addressed as 'screen-' + name at runtime.
+  for (const screen of ['screen-auth', 'screen-portal', 'screen-play', 'screen-done']) {
+    if (!htmlIds.has(screen)) missing.add(screen);
   }
 
   assert.strictEqual(missing.size, 0, `missing from index.html: ${[...missing].join(', ')}`);
 });
 
-test('index.html loads the three scripts it depends on', () => {
-  for (const src of ['dsp.js', 'store.js', 'app.js']) {
+test('index.html loads the scripts it depends on, in order', () => {
+  for (const src of ['auth.js', 'dsp.js', 'store.js', 'app.js']) {
     assert.ok(html.includes(src), `index.html never loads ${src}`);
   }
   // dsp.js and store.js define globals that app.js uses at startup, so they
   // must be parsed first.
   assert.ok(html.indexOf('dsp.js') < html.indexOf('app.js'), 'dsp.js must load before app.js');
   assert.ok(html.indexOf('store.js') < html.indexOf('app.js'), 'store.js must load before app.js');
+  assert.ok(html.indexOf('auth.js') < html.indexOf('app.js'), 'auth.js must load before app.js');
 });
 
 test('viewport is configured for notched phones', () => {
@@ -72,17 +71,24 @@ test('viewport is configured for notched phones', () => {
   assert.ok(!/user-scalable\s*=\s*no/.test(tag[0]), 'pinch zoom must not be disabled — it is an accessibility requirement');
 });
 
-test('text inputs are at least 16px so iOS does not zoom on focus', () => {
-  const css = fs.readFileSync(path.join(pub, 'styles.css'), 'utf8');
-  const block = css.match(/\.field input,[\s\S]*?\{([\s\S]*?)\}/);
-  assert.ok(block, 'could not find the shared input rule');
-  const size = block[1].match(/font-size:\s*(\d+)px/);
-  assert.ok(size, 'inputs have no explicit font-size');
-  assert.ok(Number(size[1]) >= 16, `inputs are ${size[1]}px; iOS zooms the page below 16px`);
+test('every text input is at least 16px so iOS does not zoom on focus', () => {
+  const css = fs.readFileSync(path.join(pub, 'app.css'), 'utf8');
+  const rules = [
+    /\.field-group input, \.field-group select \{([\s\S]*?)\}/,
+    /\.speaker-row input \{([\s\S]*?)\}/,
+  ];
+  for (const re of rules) {
+    const block = css.match(re);
+    assert.ok(block, `could not find an input rule matching ${re}`);
+    const size = block[1].match(/font-size:\s*(\d+)px/);
+    assert.ok(size && Number(size[1]) >= 16,
+      `an input is ${size ? size[1] : '?'}px; iOS zooms the page below 16px`);
+  }
 });
 
 test('no API keys are hard-coded in the client', () => {
-  for (const [name, src] of [['app.js', app], ['index.html', html], ['store.js', fs.readFileSync(path.join(pub, 'store.js'), 'utf8')]]) {
+  const files = fs.readdirSync(pub).filter(f => f.endsWith('.js') || f.endsWith('.html'));
+  for (const [name, src] of files.map(f => [f, fs.readFileSync(path.join(pub, f), 'utf8')])) {
     assert.ok(!/sk_[a-z0-9_]{10,}/i.test(src), `${name} contains what looks like a Sarvam key`);
     assert.ok(!/gsk_[A-Za-z0-9]{20,}/.test(src), `${name} contains what looks like a Groq key`);
     assert.ok(!/api-subscription-key/.test(src), `${name} calls the STT provider directly instead of the server proxy`);
@@ -117,57 +123,55 @@ test('every file the service worker precaches exists', () => {
   }
 });
 
-// ── Word session ──────────────────────────────────────────────────────────────
-const playIds = new Set([...playHtml.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
+test('the pack index and every pack it names are well formed', () => {
+  assert.ok(packIndex.packs && packIndex.packs.length, 'the pack index is empty');
 
-test('every id used by play.js exists in play.html', () => {
-  const missing = new Set();
-  for (const m of playJs.matchAll(/\$\('([^']+)'\)/g)) {
-    const id = m[1];
-    // Screens are addressed as 'screen-' + name at runtime.
-    if (id.startsWith('screen-')) continue;
-    if (!playIds.has(id)) missing.add(id);
-  }
-  for (const screen of ['screen-setup', 'screen-play', 'screen-done']) {
-    if (!playIds.has(screen)) missing.add(screen);
-  }
-  assert.strictEqual(missing.size, 0, `missing from play.html: ${[...missing].join(', ')}`);
-});
+  const seen = new Set();
+  for (const entry of packIndex.packs) {
+    assert.ok(entry.id && entry.file, `incomplete index entry: ${JSON.stringify(entry)}`);
+    assert.ok(!seen.has(entry.id), `duplicate pack id: ${entry.id}`);
+    seen.add(entry.id);
 
-test('play.html loads its dependencies in order', () => {
-  for (const src of ['dsp.js', 'store.js', 'play.js']) {
-    assert.ok(playHtml.includes(src), `play.html never loads ${src}`);
-  }
-  assert.ok(playHtml.indexOf('dsp.js') < playHtml.indexOf('play.js'), 'dsp.js must load before play.js');
-  assert.ok(playHtml.indexOf('store.js') < playHtml.indexOf('play.js'), 'store.js must load before play.js');
-});
+    const file = path.join(pub, 'packs', entry.file);
+    assert.ok(fs.existsSync(file), `the index names a missing pack: ${entry.file}`);
 
-test('the word pack is well formed', () => {
-  assert.ok(pack.items.length > 0, 'pack has no items');
-  const ids = new Set();
-  for (const item of pack.items) {
-    assert.ok(item.id, `an item is missing an id: ${JSON.stringify(item)}`);
-    assert.ok(!ids.has(item.id), `duplicate prompt id: ${item.id}`);
-    ids.add(item.id);
-    assert.ok(item.te && item.te.trim(), `${item.id} has no Telugu text`);
-    // Prompt ids become directory names on disk.
-    assert.ok(/^[a-z0-9_-]+$/.test(item.id), `${item.id} is not safe as a folder name`);
-    // Telugu text must actually be in the Telugu block, or the prompt is wrong.
-    assert.ok(/[\u0C00-\u0C7F]/.test(item.te), `${item.id} does not contain Telugu characters`);
+    const pack = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.strictEqual(pack.items.length, entry.count,
+      `${entry.id}: index says ${entry.count} words, the pack holds ${pack.items.length}`);
+
+    const ids = new Set();
+    for (const item of pack.items) {
+      assert.ok(item.id, `an item in ${entry.id} has no id`);
+      assert.ok(!ids.has(item.id), `duplicate prompt id in ${entry.id}: ${item.id}`);
+      ids.add(item.id);
+      // Prompt ids become directory names on disk.
+      assert.ok(/^[a-z0-9_-]+$/.test(item.id), `${item.id} is not safe as a folder name`);
+      // A prompt that is not actually Telugu is a broken prompt.
+      assert.ok(/[\u0C00-\u0C7F]/.test(item.te || ''), `${item.id} contains no Telugu characters`);
+    }
   }
 });
 
-test('play inputs are at least 16px so iOS does not zoom on focus', () => {
-  const css = fs.readFileSync(path.join(pub, 'play.css'), 'utf8');
-  const block = css.match(/\.field-group input, \.field-group select \{([\s\S]*?)\}/);
-  assert.ok(block, 'could not find the play input rule');
-  const size = block[1].match(/font-size:\s*(\d+)px/);
-  assert.ok(size && Number(size[1]) >= 16, `play inputs are ${size ? size[1] : '?'}px`);
-});
-
-test('the game does not call a speech-to-text service', () => {
+test('the app does not call a speech-to-text service', () => {
   // The prompt is the transcript; reaching for STT here would be a regression.
-  assert.ok(!/api\/stt/.test(playJs), 'play.js calls the STT proxy, but the prompt already is the transcript');
+  assert.ok(!/api\/stt/.test(app), 'app.js calls the STT proxy, but the prompt already is the transcript');
+});
+
+test('the app is gated behind the account screen', () => {
+  assert.ok(/decideStartScreen/.test(app), 'no start-screen decision exists');
+  // Every path with no valid session must land on the auth screen.
+  const fn = app.slice(app.indexOf('async function decideStartScreen'));
+  const body = fn.slice(0, fn.indexOf('\n  }'));
+  assert.ok(/show\('auth'\)/.test(body), 'the start-screen decision never shows the auth screen');
+
+  // The portal may only be shown from inside the signed-in branch. Whatever
+  // the function does last, with no valid session, must be the auth screen.
+  const calls = [...body.matchAll(/show\('(\w+)'\)/g)].map(m => m[1]);
+  assert.strictEqual(calls[calls.length - 1], 'auth',
+    `the last routing decision is show('${calls[calls.length - 1]}'), so an unauthenticated visitor can land past the gate`);
+  const portalIndex = body.indexOf("show('portal')");
+  assert.ok(portalIndex === -1 || body.lastIndexOf('isSignedIn', portalIndex) !== -1,
+    'the portal is shown without checking for a session first');
 });
 
 console.log(`\n${passed} passed\n`);

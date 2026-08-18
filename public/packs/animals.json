@@ -1,0 +1,48 @@
+{
+  "id": "animals",
+  "name": "Animals",
+  "icon": "🐘",
+  "accent": "lime",
+  "description": "Creatures a speaker names from daily life, not from a book.",
+  "language": {
+    "prompt": "te",
+    "response": "bnj"
+  },
+  "items": [
+    {
+      "id": "puli",
+      "te": "పులి",
+      "translit": "puli",
+      "en": "tiger",
+      "segment": "animal"
+    },
+    {
+      "id": "enugu",
+      "te": "ఏనుగు",
+      "translit": "ēnugu",
+      "en": "elephant",
+      "segment": "animal"
+    },
+    {
+      "id": "aavu",
+      "te": "ఆవు",
+      "translit": "āvu",
+      "en": "cow",
+      "segment": "animal"
+    },
+    {
+      "id": "kukka",
+      "te": "కుక్క",
+      "translit": "kukka",
+      "en": "dog",
+      "segment": "animal"
+    },
+    {
+      "id": "pilli",
+      "te": "పిల్లి",
+      "translit": "pilli",
+      "en": "cat",
+      "segment": "animal"
+    }
+  ]
+}

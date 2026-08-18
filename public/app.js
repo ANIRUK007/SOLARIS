@@ -1,358 +1,673 @@
 /**
- * app.js — SOLARIS mobile capture flow.
+ * play.js — prompt-driven capture session.
  *
- * Pipeline for each of the two recordings:
+ * The loop: a Telugu word is shown, the speaker says it in Banjara, the take
+ * is filtered and graded on the device, and a verdict comes back immediately.
+ * Good takes are saved and the session moves on; poor ones are re-recorded on
+ * the spot, which is the only moment the speaker is still in the room.
  *
- *   getUserMedia -> MediaRecorder -> decode -> resample to 16 kHz mono
- *     -> background/noise removal (dsp.js) -> quality grade -> WAV
- *
- * Both the raw take and the cleaned take are kept. Discarding the original
- * recording in a language-archival project is not recoverable, so the raw
- * audio is always uploaded alongside the filtered version.
+ * The transcript needs no speech-to-text here: the Telugu prompt *is* the
+ * text, so the pairing is known before the speaker opens their mouth.
  */
 (function () {
   'use strict';
 
-  // ── Config ──────────────────────────────────────────────────────────────────
   const CONFIG = {
-    // Same origin as whatever served this page, so the phone talks to the
-    // laptop without anybody editing an IP address by hand.
     serverUrl: location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001',
     targetSampleRate: 16000,
     minScore: 50,
-    activeSTT: 'sarvam',
+    minDuration: 0.6,
+    baseXp: 10,
   };
-
-  const DEFAULTS = { spk: 'SPK001', letter: 'అ', seg: 'place', sess: '01' };
-
-  const LETTERS = [
-    'అ','ఆ','ఇ','ఈ','ఉ','ఊ','ఋ','ఎ','ఏ','ఐ','ఒ','ఓ','ఔ','అం','అః',
-    'క','ఖ','గ','ఘ','ఙ','చ','ఛ','జ','ఝ','ఞ',
-    'ట','ఠ','డ','ఢ','ణ','త','థ','ద','ధ','న',
-    'ప','ఫ','బ','భ','మ','య','ర','ల','వ',
-    'శ','ష','స','హ','ళ','క్ష','జ్ఞ',
-  ];
 
   const $ = (id) => document.getElementById(id);
 
-  // ── State ───────────────────────────────────────────────────────────────────
-  const S = {
-    // Per side (B = Banjara, T = Telugu)
-    rec:     { B: null, T: null },      // { raw, cleaned, samples, sampleRate, duration }
-    mr:      { B: null, T: null },
-    stream:  { B: null, T: null },
-    startAt: { B: 0, T: 0 },
-    ticker:  { B: null, T: null },
-    isRec:   { B: false, T: false },
-    scores:  { B: null, T: null },
-    audio:   { B: null, T: null },      // HTMLAudioElement for playback
-    peaks:   { B: null, T: null },
-    useClean: true,
-    stt: CONFIG.activeSTT,
-    engines: { sarvam: false, groq: false },
+  const G = {
+    pack: null,
+    queue: [],
+    index: 0,
+    phase: 'bnj',            // 'bnj' or 'tel' when paired audio is enabled
+    withTelugu: false,
+    speaker: 'SPK001',
+    session: '01',
+
+    takes: { bnj: null, tel: null },
+    results: [],             // one entry per prompt: recorded | skipped
+    xp: 0,
+    streak: 0,
+    bestStreak: 0,
+    startedAt: 0,
+
+    isRec: false,
+    starting: false,
+    mr: null,
+    stream: null,
+    recStart: 0,
+    ticker: null,
+    meter: null,
     wakeLock: null,
-    submitting: false,
+    audio: null,
+    busy: false,
   };
 
   let audioCtx = null;
 
-  /** iOS only allows an AudioContext to start inside a user gesture. */
   function getAudioContext() {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) throw new Error('Web Audio is not supported in this browser.');
+    if (!AC) throw new Error('Web Audio is not supported here.');
     if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AC();
     if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     return audioCtx;
   }
 
-  // ── Metadata ────────────────────────────────────────────────────────────────
-  const loadMeta = (k) => localStorage.getItem('solaris_' + k) ?? DEFAULTS[k];
-  const saveMeta = (k, v) => localStorage.setItem('solaris_' + k, v);
+  // ── Feedback: haptics and short tones ───────────────────────────────────────
+  const buzz = (pattern) => { try { navigator.vibrate && navigator.vibrate(pattern); } catch {} };
 
-  function currentMeta() {
-    const spk  = $('spk-id').value.trim() || 'SPK???';
-    const lttr = $('tel-letter').value || '?';
-    const seg  = $('seg-type').value || 'segment';
-    const sess = String($('sess-num').value || '??').padStart(2, '0');
-    const base = `${spk}_${lttr}_${seg}`;
-    return {
-      spk, lttr, seg, sess, base,
-      // Forward slashes only; the server maps them onto whatever separator
-      // the host OS uses, so a phone can write into a Windows dataset.
-      folder: `speakers/${spk}/sessions/session_${sess}/${lttr}`,
-      names: {
-        banjara:    `${base}_banjara.wav`,
-        telugu:     `${base}_telugu.wav`,
-        transcript: `${base}_telugu.txt`,
-        banjaraRaw: `${base}_banjara_raw.wav`,
-        teluguRaw:  `${base}_telugu_raw.wav`,
-      },
-    };
-  }
-
-  function updateMeta() {
-    const m = currentMeta();
-    $('fn-b').textContent = m.names.banjara;
-    $('fn-t').textContent = m.names.telugu;
-    $('fn-x').textContent = m.names.transcript;
-    $('savePath').textContent = m.folder;
-    $('metaSummary').textContent = `${m.spk} · ${m.lttr} · S${m.sess}`;
-    return m;
-  }
-
-  // ── Server health ───────────────────────────────────────────────────────────
-  async function checkServer() {
-    const pill = $('srvPill'), lbl = $('srvLbl');
-    pill.className = 'srv-pill checking';
-    lbl.textContent = 'checking…';
+  /** Two-note blip. Synthesised rather than loaded, so there is no audio file
+   *  to fetch on a phone with no signal. */
+  function blip(kind) {
     try {
-      const r = await fetch(CONFIG.serverUrl + '/health', { cache: 'no-store' });
-      const j = await r.json();
-      if (!r.ok || j.status !== 'ok') throw new Error('bad health response');
+      const ctx = getAudioContext();
+      const now = ctx.currentTime;
+      const notes = kind === 'good' ? [660, 990] : kind === 'bad' ? [300, 200] : [520, 520];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now + i * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + i * 0.09 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.16);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + i * 0.09);
+        osc.stop(now + i * 0.09 + 0.18);
+      });
+    } catch { /* audio feedback is optional */ }
+  }
 
-      S.engines = j.engines || { sarvam: false, groq: false };
-      pill.className = 'srv-pill ok';
-      lbl.textContent = 'online';
+  // ── Screens ─────────────────────────────────────────────────────────────────
+  function show(screen) {
+    ['auth', 'portal', 'play', 'done'].forEach(s => { $('screen-' + s).hidden = s !== screen; });
+    if (screen === 'portal') paintPortal();
+  }
 
-      $('chipSarvam').disabled = !S.engines.sarvam;
-      $('chipGroq').disabled   = !S.engines.groq;
-      if (!S.engines[S.stt]) {
-        const fallback = Object.keys(S.engines).find(k => S.engines[k]);
-        if (fallback) selectSTT(fallback);
-      }
-      if (!S.engines.sarvam && !S.engines.groq) {
-        $('tstatus').textContent = 'No STT engine configured — type the transcription manually.';
-      }
-    } catch {
-      pill.className = 'srv-pill err';
-      lbl.textContent = 'offline';
+  function hideToast() {
+    const el = $('toast');
+    clearTimeout(el._t);
+    el.classList.remove('show');
+  }
+
+  function toast(msg, ms) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), ms || 2200);
+  }
+
+  // ── Sign in ─────────────────────────────────────────────────────────────────
+  let authMode = 'login';          // or 'register'
+
+  function paintAuthMode() {
+    const registering = authMode === 'register';
+    $('authLede').textContent = registering
+      ? 'Create an account to record.'
+      : 'Sign in to record.';
+    $('btnAuthSubmit').textContent = registering ? 'Create Account' : 'Sign In';
+    $('btnAuthToggle').textContent = registering ? 'I already have an account' : 'Create an account instead';
+    $('authNameRow').hidden = !registering;
+    $('auth-pass').setAttribute('autocomplete', registering ? 'new-password' : 'current-password');
+    clearError('authErr');
+  }
+
+  async function submitAuth() {
+    clearError('authErr');
+    const username = $('auth-user').value.trim();
+    const password = $('auth-pass').value;
+
+    if (!username || !password) {
+      showError('authErr', 'Enter a username and password.');
+      return;
     }
+
+    const btn = $('btnAuthSubmit');
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+
+    try {
+      if (authMode === 'register') {
+        await SolarisAuth.register(username, password, $('auth-name').value.trim() || username);
+      } else {
+        await SolarisAuth.login(username, password);
+      }
+      $('auth-pass').value = '';
+      show('portal');
+    } catch (err) {
+      showError('authErr', err.message);
+    } finally {
+      btn.disabled = false;
+      // Only restore the label. Calling paintAuthMode() here would clear the
+      // error that was just shown, leaving a failed sign-in looking like
+      // nothing happened at all.
+      btn.textContent = authMode === 'register' ? 'Create Account' : 'Sign In';
+    }
+  }
+
+  function signOut() {
+    SolarisAuth.logout();
+    authMode = 'login';
+    paintAuthMode();
+    show('auth');
+  }
+
+  /**
+   * Where to land on open. The app always starts behind the account screen —
+   * every recording is attributed to somebody, so there is no anonymous way
+   * in. The only choice is whether that screen offers sign-in or sign-up.
+   */
+  async function decideStartScreen() {
+    if (SolarisAuth.isSignedIn) {
+      await SolarisAuth.refresh();
+      if (SolarisAuth.isSignedIn) { show('portal'); return; }
+    }
+
+    // With no accounts on the server yet, the first visitor is setting it up,
+    // so offer sign-up rather than a sign-in they cannot satisfy.
+    const hasAccounts = await SolarisAuth.serverRequiresAuth();
+    authMode = hasAccounts ? 'login' : 'register';
+    paintAuthMode();
+    show('auth');
+  }
+
+  // ── Portal ──────────────────────────────────────────────────────────────────
+  let packs = [];                      // the index entries, with cached documents
+
+  async function loadPacks() {
+    try {
+      const r = await fetch('packs/index.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`packs/index.json returned ${r.status}`);
+      packs = (await r.json()).packs || [];
+    } catch (err) {
+      console.error('[PACKS]', err);
+      packs = [];
+    }
+    renderPacks();
+  }
+
+  /** Per-pack completion for the current speaker, kept on the device. The
+   *  server holds the audio; this is only what the portal needs to draw. */
+  function progressKey(packId) {
+    return `solaris_prog_${G.speaker}_${packId}`;
+  }
+  function packProgress(packId) {
+    try { return JSON.parse(localStorage.getItem(progressKey(packId))) || {}; }
+    catch { return {}; }
+  }
+  function markProgress(packId, itemId, outcome) {
+    const done = packProgress(packId);
+    done[itemId] = outcome;
+    try { localStorage.setItem(progressKey(packId), JSON.stringify(done)); } catch {}
+  }
+
+  /**
+   * Refresh the progress shown on the existing cards without rebuilding them.
+   * Replacing the grid would detach the very node the operator is reaching
+   * for, and the tap would land on nothing.
+   */
+  function refreshPackProgress() {
+    for (const card of $('packGrid').children) {
+      const pack = packs.find(p => p.id === card.dataset.pack);
+      if (!pack) continue;
+
+      const done = Object.keys(packProgress(pack.id)).length;
+      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
+
+      card.querySelector('.pack-fill').style.width = pct + '%';
+      card.querySelector('.pack-meta').textContent = `${done} / ${pack.count} done`;
+      card.querySelector('.pack-go').textContent = pct >= 100 ? '✓' : '▶';
+      card.classList.toggle('complete', pct >= 100);
+      card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
+    }
+  }
+
+  function renderPacks() {
+    const grid = $('packGrid');
+    grid.innerHTML = '';
+
+    if (!packs.length) {
+      const empty = document.createElement('p');
+      empty.className = 'card-hint';
+      empty.textContent = 'No word sets could be loaded. Check that public/packs/ is present on the server.';
+      grid.appendChild(empty);
+      return;
+    }
+
+    for (const pack of packs) {
+      const done = Object.keys(packProgress(pack.id)).length;
+      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
+
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `pack accent-${pack.accent || 'gold'}${pct >= 100 ? ' complete' : ''}`;
+      card.dataset.pack = pack.id;
+      card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
+
+      card.innerHTML = `
+        <span class="pack-icon">${pack.icon || '🎙'}</span>
+        <span class="pack-body">
+          <span class="pack-name">${escapeHtml(pack.name)}</span>
+          <span class="pack-desc">${escapeHtml(pack.description || '')}</span>
+          <span class="pack-track"><span class="pack-fill" style="width:${pct}%"></span></span>
+          <span class="pack-meta">${done} / ${pack.count} done</span>
+        </span>
+        <span class="pack-go">${pct >= 100 ? '✓' : '▶'}</span>`;
+
+      card.addEventListener('click', () => openPack(pack, card));
+      grid.appendChild(card);
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function paintPortal() {
+    const user = SolarisAuth.user;
+    if (user) {
+      $('userAvatar').textContent = (user.displayName || user.username).trim().charAt(0) || '?';
+      $('userName').textContent = user.displayName || user.username;
+      $('userLevel').textContent = `Level ${user.level}`;
+      $('levelBadge').textContent = user.level;
+
+      const floor = xpForLevel(user.level);
+      const ceiling = xpForLevel(user.level + 1);
+      const into = Math.max(0, user.stats.xp - floor);
+      const span = Math.max(1, ceiling - floor);
+
+      $('xpNow').textContent = `${user.stats.xp} XP`;
+      $('xpNext').textContent = `${Math.max(0, ceiling - user.stats.xp)} XP to level ${user.level + 1}`;
+      $('levelFill').style.width = Math.min(100, (into / span) * 100) + '%';
+
+      $('miniWords').textContent = user.stats.words;
+      $('miniSessions').textContent = user.stats.sessions;
+      $('miniStreak').textContent = user.stats.bestStreak;
+    }
+
+    if ($('packGrid').children.length) refreshPackProgress();
+    else renderPacks();
     refreshQueue();
   }
 
+  /** Mirrors the server's curve so the portal can draw a progress bar without
+   *  another round trip. Keep the two in step. */
+  function xpForLevel(level) {
+    return Math.pow(Math.max(0, level - 1), 2) * 120;
+  }
+
+  async function checkServer() {
+    const pill = $('srvState'), lbl = $('srvLbl');
+    try {
+      const r = await fetch(CONFIG.serverUrl + '/health', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok || j.status !== 'ok') throw new Error();
+      pill.className = 'srv-state ok';
+      lbl.textContent = 'server online';
+    } catch {
+      pill.className = 'srv-state err';
+      lbl.textContent = 'offline — takes will queue on this device';
+    }
+  }
+
+  function showError(id, msg) {
+    const el = $(id);
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  const clearError = (id) => { $(id).hidden = true; };
+
+  /**
+   * The index carries only a summary per set; the words themselves live in a
+   * separate file and are fetched on the first tap, then kept for the rest of
+   * the visit.
+   */
+  async function openPack(entry, card) {
+    // Validate before the fetch, not after it. Checking on the far side of an
+    // await meant a tap that should have been refused would quietly start a
+    // session a moment later, using whatever had been typed in the meantime.
+    if (!readSpeaker()) {
+      toast('Enter the speaker ID first');
+      $('portal-speaker').focus();
+      return;
+    }
+
+    if (entry.items) return startSession(entry);
+
+    card.classList.add('loading');
+    try {
+      const r = await fetch('packs/' + entry.file, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`${entry.file} returned ${r.status}`);
+      const doc = await r.json();
+      entry.items = doc.items || [];
+      if (!entry.items.length) throw new Error('that set has no words in it');
+      startSession(entry);
+    } catch (err) {
+      console.error('[PACK]', err);
+      toast(`Could not open ${entry.name}: ${err.message}`, 3600);
+    } finally {
+      card.classList.remove('loading');
+    }
+  }
+
+  /** The speaker id as currently typed, or '' if it is not usable. */
+  function readSpeaker() {
+    return $('portal-speaker').value.trim().toUpperCase();
+  }
+
+  function startSession(pack) {
+    const speaker = readSpeaker();
+    if (!speaker) {
+      // Reachable if the field is cleared while a pack is being fetched.
+      toast('Enter the speaker ID first');
+      $('portal-speaker').focus();
+      return;
+    }
+
+    G.speaker = speaker;
+    localStorage.setItem('solaris_spk', speaker);
+
+    // Resume rather than restart: a half-finished set should carry on from
+    // where the speaker stopped, not repeat what is already recorded.
+    const done = packProgress(pack.id);
+    const remaining = (pack.items || []).filter(i => !done[i.id]);
+
+    G.pack = pack;
+    G.queue = remaining.length ? remaining : pack.items.slice();
+    if (!remaining.length) {
+      try { localStorage.removeItem(progressKey(pack.id)); } catch {}
+      toast('Starting this set again');
+    }
+
+    G.index = 0;
+    G.phase = 'bnj';
+    G.session = String(Number(localStorage.getItem('solaris_sess') || 0) + 1).padStart(2, '0');
+    localStorage.setItem('solaris_sess', String(Number(G.session)));
+    G.withTelugu = $('toggleTelugu').classList.contains('on');
+    G.takes = { bnj: null, tel: null };
+    G.results = [];
+    G.xp = 0;
+    G.streak = 0;
+    G.bestStreak = 0;
+    G.startedAt = Date.now();
+
+    $('streakVal').textContent = '0';
+
+    buildSegbar();
+    show('play');
+    renderPrompt(false);
+
+    // iOS only starts an AudioContext inside a gesture, and this tap is the
+    // last guaranteed one before recording begins.
+    try { getAudioContext(); } catch {}
+  }
+
+  // ── Progress bar ────────────────────────────────────────────────────────────
+  function buildSegbar() {
+    const bar = $('segbar');
+    bar.innerHTML = '';
+    G.queue.forEach(() => {
+      const s = document.createElement('span');
+      s.className = 'seg';
+      bar.appendChild(s);
+    });
+    updateSegbar();
+  }
+
+  function updateSegbar() {
+    const segs = $('segbar').children;
+    for (let i = 0; i < segs.length; i++) {
+      const res = G.results[i];
+      segs[i].className = 'seg' +
+        (res === 'recorded' ? ' done' : res === 'skipped' ? ' skipped' : i === G.index ? ' current' : '');
+    }
+  }
+
+  // ── Prompt rendering ────────────────────────────────────────────────────────
+  function currentItem() { return G.queue[G.index]; }
+
+  function renderPrompt(animate) {
+    const item = currentItem();
+    if (!item) return finish();
+
+    const card = $('promptCard');
+    const paint = () => {
+      $('promptCat').textContent = item.segment || 'word';
+      $('promptWord').textContent = item.te;
+      $('promptTranslit').textContent = item.translit || '';
+      $('promptEn').textContent = item.en ? `“${item.en}”` : '';
+
+      const teluguPhase = G.phase === 'tel';
+      $('instruction').innerHTML = teluguPhase
+        ? 'Now say it in <span class="lang" style="color:var(--blue)">Telugu</span>'
+        : 'Say this in <span class="lang">Banjara</span>';
+
+      $('btnSpeak').hidden = !hasTeluguVoice();
+      $('recLabel').textContent = 'Tap to record';
+      $('btnRecord').classList.remove('recording');
+      $('btnSkip').hidden = teluguPhase;   // the Banjara answer is what can be absent
+      $('recTimer').textContent = '00:00';
+      $('meterBar').style.width = '0%';
+      $('meterWrap').classList.remove('show');
+      clearError('playErr');
+
+      card.classList.remove('leave');
+      card.classList.add('enter');
+      setTimeout(() => card.classList.remove('enter'), 400);
+    };
+
+    if (animate) {
+      card.classList.add('leave');
+      setTimeout(paint, 200);
+    } else {
+      paint();
+    }
+    updateSegbar();
+  }
+
+  // ── Telugu playback of the prompt ───────────────────────────────────────────
+  function teluguVoice() {
+    if (!('speechSynthesis' in window)) return null;
+    const voices = speechSynthesis.getVoices() || [];
+    return voices.find(v => /^te([-_]|$)/i.test(v.lang)) || null;
+  }
+  const hasTeluguVoice = () => !!teluguVoice();
+
+  function speakPrompt() {
+    const voice = teluguVoice();
+    if (!voice) return;
+    const u = new SpeechSynthesisUtterance(currentItem().te);
+    u.voice = voice;
+    u.lang = voice.lang;
+    u.rate = 0.85;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
+
   // ── Recording ───────────────────────────────────────────────────────────────
-  /** Pick a container this browser will actually record. Safari has never
-   *  supported WebM, so an unconditional webm mimeType throws on iPhone. */
   function pickMimeType() {
     if (typeof MediaRecorder === 'undefined') return null;
     const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4;codecs=mp4a.40.2',
-      'audio/mp4',
-      'audio/aac',
-      'audio/ogg;codecs=opus',
+      'audio/webm;codecs=opus', 'audio/webm',
+      'audio/mp4;codecs=mp4a.40.2', 'audio/mp4',
+      'audio/aac', 'audio/ogg;codecs=opus',
     ];
-    for (const type of candidates) {
-      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) return type;
+    for (const t of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
     }
-    return '';   // let the browser choose its own default
+    return '';
   }
 
-  async function requestWakeLock() {
-    try {
-      if ('wakeLock' in navigator) S.wakeLock = await navigator.wakeLock.request('screen');
-    } catch { /* not fatal — the screen may just dim */ }
+  async function toggleRecord() {
+    // getUserMedia takes a moment to resolve, and an impatient second tap in
+    // that window would open a second stream that nothing ever stops.
+    if (G.busy || G.starting) return;
+    if (G.isRec) stopRecording();
+    else await startRecording();
   }
 
-  function releaseWakeLock() {
-    if (S.wakeLock) { S.wakeLock.release().catch(() => {}); S.wakeLock = null; }
-  }
-
-  async function toggleRec(side) {
-    if (S.isRec[side]) stopRec(side);
-    else await startRec(side);
-  }
-
-  async function startRec(side) {
-    clearAlert('err' + side);
-
-    // Recording both at once would capture each language over the other.
-    const other = side === 'B' ? 'T' : 'B';
-    if (S.isRec[other]) stopRec(other);
+  async function startRecording() {
+    clearError('playErr');
+    G.starting = true;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showAlert('err' + side, micUnavailableMessage(), 'err');
+      showError('playErr', micMessage());
+      G.starting = false;
       return;
     }
 
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        // The browser's own cleanup would fight our filtering and colour the
-        // archive, so capture as close to raw as the device allows.
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 1,
-        },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
         video: false,
       });
     } catch (err) {
-      showAlert('err' + side,
-        err && err.name === 'NotAllowedError'
-          ? 'Microphone permission denied. Allow it in the browser settings and try again.'
-          : micUnavailableMessage(),
-        'err');
+      showError('playErr', err && err.name === 'NotAllowedError'
+        ? 'Microphone permission denied. Allow it in the browser settings, then tap record again.'
+        : micMessage());
+      G.starting = false;
       return;
     }
 
-    const mimeType = pickMimeType();
+    const mime = pickMimeType();
     let mr;
     try {
-      mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     } catch {
-      try { mr = new MediaRecorder(stream); }
-      catch {
-        stream.getTracks().forEach(t => t.stop());
-        showAlert('err' + side, 'This browser cannot record audio. Try Chrome or Safari.', 'err');
-        return;
-      }
+      stream.getTracks().forEach(t => t.stop());
+      showError('playErr', 'This browser cannot record audio. Try Chrome or Safari.');
+      G.starting = false;
+      return;
     }
 
     const chunks = [];
     mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
     mr.onstop = async () => {
-      stopMeter(side);
+      stopMeter();
       stream.getTracks().forEach(t => t.stop());
-      S.stream[side] = null;
-      const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
-      await processRecording(side, blob);
+      G.stream = null;
+      await processTake(new Blob(chunks, { type: mr.mimeType || 'audio/webm' }));
     };
 
     mr.start(200);
-    S.mr[side] = mr;
-    S.stream[side] = stream;
-    S.isRec[side] = true;
-    S.startAt[side] = Date.now();
+    G.mr = mr;
+    G.stream = stream;
+    G.isRec = true;
+    G.starting = false;
+    G.recStart = Date.now();
 
-    $('btn' + side).classList.add('active');
-    $('lbl' + side).textContent = 'Stop Recording';
-    $('panel' + side).classList.add('armed');
-    $('player' + side).classList.remove('show');
-    $('rerec' + side).classList.remove('show');
-    $('check' + side).classList.remove('show');
-
-    startMeter(side, stream);
+    $('btnRecord').classList.add('recording');
+    $('recLabel').textContent = 'Tap to stop';
+    $('meterWrap').classList.add('show');
+    buzz(18);
     requestWakeLock();
+    startMeter(stream);
 
-    // Wall-clock, not a tick count: mobile browsers throttle timers hard when
-    // the screen dims, and a counted interval silently under-reports.
-    S.ticker[side] = setInterval(() => {
-      const secs = Math.floor((Date.now() - S.startAt[side]) / 1000);
-      const t = $('timer' + side);
-      t.textContent = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
-      t.classList.add('on');
-    }, 250);
+    // Wall clock rather than a tick count: phones throttle timers aggressively
+    // once the screen dims, and a counted interval drifts.
+    G.ticker = setInterval(() => {
+      const secs = Math.floor((Date.now() - G.recStart) / 1000);
+      $('recTimer').textContent =
+        `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+    }, 200);
   }
 
-  function micUnavailableMessage() {
-    // By far the most common field failure: the phone opened the LAN address
-    // over plain HTTP, and the browser silently refuses the microphone.
+  function micMessage() {
     if (!window.isSecureContext) {
-      return 'Microphone blocked because this page is not on a secure connection.\n' +
-             'Open it over https://, or run it on localhost.';
+      return 'The microphone is blocked because this page is not on a secure connection.\n' +
+             'Open it over https://, or use localhost.';
     }
-    return 'Microphone unavailable on this device.';
+    return 'No microphone is available on this device.';
   }
 
-  function stopRec(side) {
-    if (!S.isRec[side]) return;
-    clearInterval(S.ticker[side]);
-    S.isRec[side] = false;
-    try { S.mr[side].stop(); } catch { /* already stopped */ }
-    $('btn' + side).classList.remove('active');
-    $('lbl' + side).textContent = 'Start Recording';
-    $('timer' + side).classList.remove('on');
-    $('panel' + side).classList.remove('armed');
-    setLevel(side, 0);
-    if (!S.isRec.B && !S.isRec.T) releaseWakeLock();
+  function stopRecording() {
+    if (!G.isRec) return;
+    G.isRec = false;
+    clearInterval(G.ticker);
+    try { G.mr.stop(); } catch {}
+    $('btnRecord').classList.remove('recording');
+    $('recLabel').textContent = 'Processing…';
+    releaseWakeLock();
+    buzz(12);
   }
 
-  // ── Live input level ────────────────────────────────────────────────────────
-  const meters = {};
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) G.wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  function releaseWakeLock() {
+    if (G.wakeLock) { G.wakeLock.release().catch(() => {}); G.wakeLock = null; }
+  }
 
-  function startMeter(side, stream) {
+  function startMeter(stream) {
     try {
       const ctx = getAudioContext();
       const src = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       src.connect(analyser);
-
       const buf = new Uint8Array(analyser.fftSize);
       let raf;
       const tick = () => {
         analyser.getByteTimeDomainData(buf);
         let peak = 0;
         for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128) / 128);
-        setLevel(side, Math.min(100, peak * 140));
+        $('meterBar').style.width = Math.min(100, peak * 145) + '%';
         raf = requestAnimationFrame(tick);
       };
       tick();
-      meters[side] = { stop: () => { cancelAnimationFrame(raf); try { src.disconnect(); } catch {} } };
-    } catch { /* the meter is a nicety; recording continues without it */ }
+      G.meter = () => { cancelAnimationFrame(raf); try { src.disconnect(); } catch {} };
+    } catch {}
+  }
+  function stopMeter() {
+    if (G.meter) { G.meter(); G.meter = null; }
+    $('meterBar').style.width = '0%';
   }
 
-  function stopMeter(side) {
-    if (meters[side]) { meters[side].stop(); delete meters[side]; }
-    setLevel(side, 0);
-  }
-
-  const setLevel = (side, pct) => { $('level' + side).style.width = pct + '%'; };
-
-  // ── Decode, filter, grade ───────────────────────────────────────────────────
-  async function processRecording(side, blob) {
-    const status = side === 'B' ? 'Banjara' : 'Telugu';
+  // ── Processing and grading ──────────────────────────────────────────────────
+  async function processTake(blob) {
+    G.busy = true;
     try {
-      setBusy(side, `Processing ${status} audio…`);
       const { samples, sampleRate } = await decodeToMono16k(blob);
-
       if (!samples.length) throw new Error('The recording came back empty.');
 
-      // Background/noise removal, same technique as the audio-splitter backend.
       const { cleaned } = SolarisDSP.denoise(samples);
-
-      const rawWav     = new Blob([SolarisDSP.encodeWav(samples, sampleRate)], { type: 'audio/wav' });
-      const cleanedWav = new Blob([SolarisDSP.encodeWav(cleaned, sampleRate)], { type: 'audio/wav' });
-
-      S.rec[side] = {
-        raw: rawWav,
-        cleaned: cleanedWav,
-        samples,
-        cleanedSamples: cleaned,
-        sampleRate,
+      const take = {
+        raw: new Blob([SolarisDSP.encodeWav(samples, sampleRate)], { type: 'audio/wav' }),
+        cleaned: new Blob([SolarisDSP.encodeWav(cleaned, sampleRate)], { type: 'audio/wav' }),
+        samples, cleanedSamples: cleaned, sampleRate,
         duration: samples.length / sampleRate,
       };
-
-      drawWave(side);
-      $('player' + side).classList.add('show');
-      $('rerec' + side).classList.add('show');
-      $('check' + side).classList.add('show');
-      clearAlert('err' + side);
-
-      grade(side);
-      if (side === 'T') transcribe();
-      updateSubmit();
+      take.grade = grade(take);
+      G.takes[G.phase] = take;
+      verdict(take);
     } catch (err) {
-      console.error('[PROCESS]', err);
-      showAlert('err' + side, `Could not process the recording: ${err.message}`, 'err');
-      S.rec[side] = null;
-      updateSubmit();
+      console.error('[TAKE]', err);
+      showError('playErr', `Could not process that take: ${err.message}`);
+      $('recLabel').textContent = 'Tap to record';
+    } finally {
+      G.busy = false;
     }
   }
 
-  /** Decode whatever container the browser produced, downmix to mono and
-   *  resample to 16 kHz — the rate the dataset and both STT engines expect. */
   async function decodeToMono16k(blob) {
     const ctx = getAudioContext();
-    const arrayBuffer = await blob.arrayBuffer();
+    const ab = await blob.arrayBuffer();
 
     const decoded = await new Promise((resolve, reject) => {
-      // Older Safari only implements the callback form and returns undefined.
-      const maybePromise = ctx.decodeAudioData(arrayBuffer, resolve, reject);
-      if (maybePromise && typeof maybePromise.then === 'function') maybePromise.then(resolve, reject);
+      // Older Safari implements only the callback form.
+      const p = ctx.decodeAudioData(ab, resolve, reject);
+      if (p && typeof p.then === 'function') p.then(resolve, reject);
     });
 
     const target = CONFIG.targetSampleRate;
@@ -361,9 +676,8 @@
     }
 
     const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    const frames = Math.ceil(decoded.duration * target);
     try {
-      const off = new OAC(1, frames, target);
+      const off = new OAC(1, Math.ceil(decoded.duration * target), target);
       const src = off.createBufferSource();
       src.buffer = decoded;
       src.connect(off.destination);
@@ -371,24 +685,19 @@
       const rendered = await off.startRendering();
       return { samples: rendered.getChannelData(0), sampleRate: target };
     } catch {
-      // Some older Safari builds reject non-standard OfflineAudioContext
-      // rates. Keeping the native rate is better than failing the take.
       return { samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate };
     }
   }
 
-  function grade(side) {
-    const rec = S.rec[side];
-    if (!rec) return;
+  /** Same scoring as the full interface, reported with a plain-language
+   *  reason so a speaker who is not a sound engineer knows what to change. */
+  function grade(take) {
+    const d = take.cleanedSamples;
+    const dur = take.duration;
+    const sr = take.sampleRate;
 
-    // Grade the cleaned signal, since that is what gets archived and
-    // transcribed.
-    const d = rec.cleanedSamples;
-    const dur = rec.duration;
-    const sr = rec.sampleRate;
-
-    const durOk = dur >= 2.0;
-    const durSc = durOk ? 25 : Math.round((dur / 2.0) * 25);
+    const durOk = dur >= CONFIG.minDuration;
+    const durSc = durOk ? 25 : Math.round((dur / CONFIG.minDuration) * 25);
 
     let ss = 0;
     for (let i = 0; i < d.length; i++) ss += d[i] * d[i];
@@ -402,12 +711,9 @@
     const clipOk = clipR < 0.01;
     const clipSc = clipOk ? 25 : Math.max(0, Math.round((1 - clipR / 0.05) * 25));
 
-    // Signal-to-noise. The noise floor is the 10th-percentile frame energy
-    // rather than the first 100 ms: a clip that happens to start on digital
-    // silence drives that estimate to zero, and the ratio then explodes into
-    // meaningless readings like "687 dB" that pass the check no matter how
-    // bad the audio is.
-    const frame = Math.max(1, Math.floor(sr * 0.02));      // 20 ms
+    // Noise floor from the 10th-percentile frame energy: a clip that starts on
+    // silence would otherwise push the ratio to meaningless extremes.
+    const frame = Math.max(1, Math.floor(sr * 0.02));
     const energies = [];
     for (let i = 0; i + frame <= d.length; i += frame) {
       let e = 0;
@@ -415,516 +721,363 @@
       energies.push(e / frame);
     }
     energies.sort((a, b) => a - b);
-
     const sP = (ss / d.length) || 1e-12;
-    const floorIdx = Math.floor(energies.length * 0.1);
-    // Floor the noise estimate at -90 dBFS, about the quietest thing 16-bit
-    // audio can represent, so the ratio stays finite.
-    const nP = Math.max(energies.length ? energies[floorIdx] : sP, 1e-9);
+    const nP = Math.max(energies.length ? energies[Math.floor(energies.length * 0.1)] : sP, 1e-9);
     const snr = Math.max(-20, Math.min(60, 10 * Math.log10(sP / nP)));
     const snrOk = snr > 10;
     const snrSc = snrOk ? 20 : Math.max(0, Math.round((snr / 10) * 20));
 
-    const total = Math.min(100, durSc + rmsSc + clipSc + snrSc);
-    S.scores[side] = total;
+    let reason = null;
+    if (!durOk)        reason = 'That was very short — hold the recording a moment longer.';
+    else if (rms <= 0.01) reason = 'Almost nothing came through. Move closer to the microphone.';
+    else if (!rmsOk)   reason = 'That was too loud and distorted. Pull back a little.';
+    else if (!clipOk)  reason = 'The audio is clipping. Speak a little softer.';
+    else if (!snrOk)   reason = 'Too much background noise around the voice.';
 
-    setScore(side, total, [
-      { l: `Dur ${dur.toFixed(1)}s`,          ok: durOk },
-      { l: `Vol ${(rms * 100).toFixed(0)}%`,  ok: rmsOk },
-      { l: `Clip ${(clipR * 100).toFixed(1)}%`, ok: clipOk },
-      { l: `SNR ${snr.toFixed(0)}dB`,         ok: snrOk },
-    ]);
-
-    const bothGraded = S.scores.B !== null && S.scores.T !== null;
-    if (bothGraded) {
-      const pass = S.scores.B >= CONFIG.minScore && S.scores.T >= CONFIG.minScore;
-      $('warnQuality').classList.toggle('show', !pass);
-    }
+    return {
+      score: Math.min(100, durSc + rmsSc + clipSc + snrSc),
+      reason,
+      metrics: [
+        { l: `${dur.toFixed(1)}s`, ok: durOk },
+        { l: `vol ${(rms * 100).toFixed(0)}%`, ok: rmsOk },
+        { l: `clip ${(clipR * 100).toFixed(1)}%`, ok: clipOk },
+        { l: `snr ${snr.toFixed(0)}dB`, ok: snrOk },
+      ],
+    };
   }
 
-  function setScore(side, total, metrics) {
-    const score = $('score' + side), bar = $('bar' + side), box = $('metrics' + side);
-    if (total === null) {
-      score.textContent = '—';
-      score.className = 'conf-score';
-      bar.style.width = '0%';
-      bar.className = 'prog-bar';
-      box.innerHTML = '';
-      return;
-    }
-    const pass = total >= CONFIG.minScore;
-    score.textContent = total + '%';
-    score.className = 'conf-score ' + (pass ? 'pass' : 'fail');
-    bar.style.width = total + '%';
-    bar.className = 'prog-bar ' + (pass ? 'pass' : 'fail');
-    box.innerHTML = '';
-    metrics.forEach(m => {
-      const span = document.createElement('span');
-      span.className = 'cm ' + (m.ok ? 'ok' : 'bad');
-      span.textContent = m.l;
-      box.appendChild(span);
+  // ── Verdict sheet ───────────────────────────────────────────────────────────
+  function verdict(take) {
+    const g = take.grade;
+    const passed = g.score >= CONFIG.minScore;
+    const sheet = $('sheet');
+
+    sheet.className = 'sheet ' + (passed ? 'good' : 'bad');
+    $('sheetIcon').textContent = passed ? '✓' : '↺';
+    $('sheetTitle').textContent = passed ? pickPraise() : 'Let us try that again';
+    $('sheetSub').textContent = passed
+      ? (G.phase === 'tel' ? 'Telugu take captured.' : 'Banjara take captured.')
+      : (g.reason || 'The recording did not pass the quality check.');
+
+    $('sheetMetrics').innerHTML = '';
+    g.metrics.forEach(m => {
+      const el = document.createElement('span');
+      el.className = 'metric' + (m.ok ? '' : ' bad');
+      el.textContent = m.l;
+      $('sheetMetrics').appendChild(el);
     });
+
+    const xp = passed ? CONFIG.baseXp + Math.round(g.score / 10) + Math.min(G.streak, 5) : 0;
+    take.xp = xp;
+    $('sheetXp').hidden = !passed;
+    $('sheetXp').textContent = `+${xp} XP`;
+
+    $('btnContinue').hidden = !passed;
+    $('btnRetry').textContent = passed ? 'Redo' : 'Record again';
+    $('btnRetry').className = passed ? 'btn btn-ghost' : 'btn btn-primary';
+
+    sheet.classList.add('show');
+    blip(passed ? 'good' : 'bad');
+    buzz(passed ? [14, 40, 14] : [90]);
   }
 
-  // ── Waveform ────────────────────────────────────────────────────────────────
-  /** Peak envelope, drawn on a canvas. Rendering this ourselves rather than
-   *  pulling a CDN library keeps the app working with no uplink. */
-  function computePeaks(samples, buckets) {
-    const peaks = new Float32Array(buckets);
-    const step = Math.max(1, Math.floor(samples.length / buckets));
-    for (let b = 0; b < buckets; b++) {
-      const start = b * step;
-      const end = Math.min(samples.length, start + step);
-      let peak = 0;
-      for (let i = start; i < end; i++) peak = Math.max(peak, Math.abs(samples[i]));
-      peaks[b] = peak;
-    }
-    return peaks;
+  const PRAISE = ['Nice!', 'Got it!', 'Clean take!', 'Well done!', 'Perfect!', 'Recorded!'];
+  const pickPraise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
+
+  function hideSheet() { $('sheet').classList.remove('show'); }
+
+  function replayTake() {
+    const take = G.takes[G.phase];
+    if (!take) return;
+    if (G.audio) { G.audio.pause(); URL.revokeObjectURL(G.audio.src); }
+    G.audio = new Audio(URL.createObjectURL(take.cleaned));
+    G.audio.play().catch(() => {});
   }
 
-  function drawWave(side, progress) {
-    const rec = S.rec[side];
-    const canvas = $('wave' + side);
-    if (!rec || !canvas) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.clientWidth || 240;
-    const cssH = canvas.clientHeight || 48;
-    canvas.width = Math.floor(cssW * dpr);
-    canvas.height = Math.floor(cssH * dpr);
-
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-
-    const barW = 2, gap = 1;
-    const buckets = Math.max(8, Math.floor(cssW / (barW + gap)));
-    const source = S.useClean ? rec.cleanedSamples : rec.samples;
-    const peaks = computePeaks(source, buckets);
-
-    let max = 0;
-    for (let i = 0; i < peaks.length; i++) max = Math.max(max, peaks[i]);
-    const norm = max > 0 ? 1 / max : 1;
-    const played = progress === undefined ? 0 : progress;
-
-    for (let i = 0; i < buckets; i++) {
-      const h = Math.max(2, peaks[i] * norm * (cssH - 6));
-      const x = i * (barW + gap) + 1;
-      const y = (cssH - h) / 2;
-      ctx.fillStyle = (i / buckets) <= played ? '#f5a623' : '#2a4870';
-      ctx.fillRect(x, y, barW, h);
-    }
+  function retryTake() {
+    G.takes[G.phase] = null;
+    hideSheet();
+    $('recLabel').textContent = 'Tap to record';
+    $('recTimer').textContent = '00:00';
+    $('meterWrap').classList.remove('show');
   }
 
-  function setupPlayer(side) {
-    const btn = $('play' + side);
-    btn.addEventListener('click', () => {
-      const rec = S.rec[side];
-      if (!rec) return;
+  /** Continue: either move to the Telugu half of the same word, or save. */
+  async function continueFlow() {
+    const take = G.takes[G.phase];
+    if (!take) return;
 
-      let audio = S.audio[side];
-      const wanted = S.useClean ? rec.cleaned : rec.raw;
+    G.xp += take.xp || 0;
+    hideSheet();
 
-      if (audio && audio._blob === wanted && !audio.paused) {
-        audio.pause();
-        btn.textContent = '▶';
-        return;
-      }
-
-      if (!audio || audio._blob !== wanted) {
-        if (audio) { audio.pause(); URL.revokeObjectURL(audio.src); }
-        audio = new Audio(URL.createObjectURL(wanted));
-        audio._blob = wanted;
-        audio.addEventListener('timeupdate', () => {
-          if (audio.duration) drawWave(side, audio.currentTime / audio.duration);
-        });
-        audio.addEventListener('ended', () => { btn.textContent = '▶'; drawWave(side, 0); });
-        S.audio[side] = audio;
-      }
-
-      audio.play().then(() => { btn.textContent = '❚❚'; }).catch(() => {});
-    });
-  }
-
-  function reRecord(side) {
-    stopRec(side);
-    if (S.audio[side]) { S.audio[side].pause(); URL.revokeObjectURL(S.audio[side].src); S.audio[side] = null; }
-    S.rec[side] = null;
-    S.scores[side] = null;
-
-    $('player' + side).classList.remove('show');
-    $('rerec' + side).classList.remove('show');
-    $('check' + side).classList.remove('show');
-    $('timer' + side).textContent = '00:00';
-    $('play' + side).textContent = '▶';
-    setScore(side, null, []);
-    clearAlert('err' + side);
-
-    if (side === 'T') {
-      $('trans-text').value = '';
-      $('tstatus').textContent = 'Waiting for Telugu audio…';
-    }
-    $('warnQuality').classList.remove('show');
-    updateSubmit();
-  }
-
-  // ── Transcription ───────────────────────────────────────────────────────────
-  function selectSTT(engine) {
-    S.stt = engine;
-    $('chipSarvam').classList.toggle('on', engine === 'sarvam');
-    $('chipGroq').classList.toggle('on', engine === 'groq');
-  }
-
-  async function transcribe() {
-    const rec = S.rec.T;
-    if (!rec) return;
-    clearAlert('errTrans');
-
-    if (!S.engines.sarvam && !S.engines.groq) {
-      $('tstatus').textContent = 'No STT engine configured — type the transcription manually.';
+    if (G.phase === 'bnj' && G.withTelugu) {
+      G.phase = 'tel';
+      renderPrompt(false);
       return;
     }
 
-    $('tstatus').textContent = S.stt === 'sarvam'
-      ? 'Transcribing with Sarvam Saarika (te-IN)…'
-      : 'Transcribing with Groq Whisper (te)…';
-    $('tspinner').classList.add('show');
-
-    try {
-      const fd = new FormData();
-      // Send the cleaned audio — that is the point of filtering first.
-      fd.append('file', rec.cleaned, 'audio.wav');
-      fd.append('engine', S.stt);
-
-      const r = await fetch(CONFIG.serverUrl + '/api/stt', { method: 'POST', body: fd });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || `Server returned ${r.status}`);
-
-      $('trans-text').value = data.transcript || '';
-      $('tstatus').textContent = data.transcript
-        ? '✓ Done — edit if needed'
-        : 'No speech detected — type it manually';
-    } catch (err) {
-      showAlert('errTrans', `Transcription failed: ${err.message}\nType the transcription manually.`, 'err');
-      $('tstatus').textContent = 'Transcription failed — enter manually';
-    } finally {
-      $('tspinner').classList.remove('show');
-    }
+    await saveCurrent();
   }
 
-  // ── Submit ──────────────────────────────────────────────────────────────────
-  function updateSubmit() {
-    const btn = $('btn-submit'), lbl = $('submitLbl'), icon = $('submitIcon');
-    if (S.submitting) return;
+  // ── Saving ──────────────────────────────────────────────────────────────────
+  async function saveCurrent() {
+    const item = currentItem();
+    const bnj = G.takes.bnj;
+    const tel = G.takes.tel;
+    if (!bnj) return;
 
-    const bothDone = !!S.rec.B && !!S.rec.T;
-    const bothPass = S.scores.B !== null && S.scores.T !== null &&
-                     S.scores.B >= CONFIG.minScore && S.scores.T >= CONFIG.minScore;
-
-    if (bothDone && bothPass) {
-      btn.className = 'ready';
-      btn.disabled = false;
-      icon.textContent = '↑';
-      lbl.textContent = 'Save Session';
-    } else if (bothDone) {
-      btn.className = '';
-      btn.disabled = true;
-      icon.textContent = '⚠';
-      lbl.textContent = 'Quality Too Low';
-    } else {
-      btn.className = '';
-      btn.disabled = true;
-      icon.textContent = '⊘';
-      lbl.textContent = 'Awaiting Recordings';
-    }
-  }
-
-  async function handleSubmit() {
-    clearAlert('errSubmit');
-    clearAlert('errSave');
-    $('success-panel').classList.remove('show');
-
-    const m = updateMeta();
-    if (m.spk === 'SPK???' || m.lttr === '?') {
-      showAlert('errSubmit', 'Fill in the session metadata before saving.', 'err');
-      $('card-meta').classList.remove('collapsed');
-      return;
-    }
-    if (!S.rec.B || !S.rec.T) {
-      showAlert('errSubmit', 'Both recordings are required.', 'err');
-      return;
-    }
-
-    const btn = $('btn-submit');
-    S.submitting = true;
-    btn.className = 'uploading';
-    btn.disabled = true;
-    $('submitLbl').textContent = 'Saving…';
-    $('submitIcon').textContent = '↻';
-
+    const base = `${G.speaker}_${item.id}`;
     const record = {
-      folder: m.folder,
-      transcript: $('trans-text').value,
-      names: m.names,
+      folder: `speakers/${G.speaker}/sessions/session_${G.session}/${item.id}`,
+      // No speech-to-text needed: the prompt is the transcript.
+      transcript: item.te,
+      names: {
+        banjara:    `${base}_banjara.wav`,
+        telugu:     `${base}_telugu.wav`,
+        transcript: `${base}_telugu.txt`,
+        banjaraRaw: `${base}_banjara_raw.wav`,
+        teluguRaw:  `${base}_telugu_raw.wav`,
+      },
       blobs: {
-        banjara:    S.rec.B.cleaned,
-        telugu:     S.rec.T.cleaned,
-        banjaraRaw: S.rec.B.raw,
-        teluguRaw:  S.rec.T.raw,
+        banjara:    bnj.cleaned,
+        banjaraRaw: bnj.raw,
+        ...(tel ? { telugu: tel.cleaned, teluguRaw: tel.raw } : {}),
       },
       meta: {
-        speaker: m.spk,
-        letter: m.lttr,
-        segment: m.seg,
-        session: m.sess,
+        speaker: G.speaker,
+        session: G.session,
+        pack: G.pack.id,
+        prompt: { id: item.id, telugu: item.te, translit: item.translit, english: item.en, segment: item.segment },
         capturedAt: new Date().toISOString(),
-        sampleRate: S.rec.T.sampleRate,
-        durations: { banjara: S.rec.B.duration, telugu: S.rec.T.duration },
-        scores: { banjara: S.scores.B, telugu: S.scores.T },
+        sampleRate: bnj.sampleRate,
+        durations: { banjara: bnj.duration, telugu: tel ? tel.duration : null },
+        scores: { banjara: bnj.grade.score, telugu: tel ? tel.grade.score : null },
         filter: SolarisDSP.DEFAULTS,
         client: navigator.userAgent,
+        // Claimed here for convenience; the server stamps the authoritative
+        // value from the token.
+        recordedBy: SolarisAuth.user ? SolarisAuth.user.username : null,
+      },
+    };
+
+    G.busy = true;
+    try {
+      const res = await SolarisStore.save(record);
+      if (res.queued) toast('Saved on this device — will upload later');
+    } catch (err) {
+      console.error('[SAVE]', err);
+      toast('Save failed: ' + err.message, 3600);
+    } finally {
+      G.busy = false;
+    }
+
+    G.streak++;
+    G.bestStreak = Math.max(G.bestStreak, G.streak);
+    $('streakVal').textContent = G.streak;
+    $('streakBox').classList.add('pulse');
+    setTimeout(() => $('streakBox').classList.remove('pulse'), 500);
+
+    G.results[G.index] = 'recorded';
+    markProgress(G.pack.id, item.id, 'recorded');
+    advance();
+  }
+
+  function skipWord() {
+    if (G.busy || G.isRec) return;
+    // A word with no Banjara equivalent is a finding, not a gap — it is kept
+    // in the session log rather than silently dropped.
+    G.results[G.index] = 'skipped';
+    markProgress(G.pack.id, currentItem().id, 'skipped');
+    G.streak = 0;
+    $('streakVal').textContent = '0';
+    toast('Marked as “no Banjara word”');
+    hideSheet();
+    advance();
+  }
+
+  function advance() {
+    G.takes = { bnj: null, tel: null };
+    G.phase = 'bnj';
+    G.index++;
+    if (G.index >= G.queue.length) finish();
+    else renderPrompt(true);
+  }
+
+  /** How many sessions are waiting to upload, shown on the portal. */
+  async function refreshQueue() {
+    const n = await SolarisStore.pending();
+    const note = $('portalQueue');
+    if (!note) return;
+    note.hidden = n === 0;
+    if (n) note.textContent = `${n} session(s) waiting to upload. They send automatically once the server is reachable.`;
+  }
+
+  // ── Finish ──────────────────────────────────────────────────────────────────
+  async function finish() {
+    hideSheet();
+    // A toast from the last action would land on top of the completion
+    // screen's buttons.
+    hideToast();
+    releaseWakeLock();
+
+    const recorded = G.results.filter(r => r === 'recorded').length;
+    const skipped  = G.results.filter(r => r === 'skipped').length;
+    const minutes  = Math.max(1, Math.round((Date.now() - G.startedAt) / 60000));
+
+    $('statXp').textContent = G.xp;
+    $('statRecorded').textContent = `${recorded}/${G.queue.length}`;
+    $('statStreak').textContent = G.bestStreak;
+    $('statTime').textContent = `${minutes}m`;
+
+    $('doneTitle').textContent = recorded === G.queue.length ? 'Perfect session!' : 'Session complete';
+    $('doneSub').textContent = skipped
+      ? `${recorded} recorded, ${skipped} marked as having no Banjara word.`
+      : 'Every word recorded and saved.';
+
+    show('done');
+    confetti();
+    blip('good');
+    buzz([20, 60, 20, 60, 40]);
+
+    await writeSessionLog(recorded, skipped);
+
+    const pending = await SolarisStore.pending();
+    const note = $('queueNote');
+    note.hidden = pending === 0;
+    if (pending) note.textContent = `${pending} session(s) waiting to upload. They will send automatically when the server is reachable.`;
+  }
+
+  /** Records the order, the skips and the timing — the parts of a session that
+   *  the audio files alone cannot show. */
+  async function writeSessionLog(recorded, skipped) {
+    const body = {
+      folder: `speakers/${G.speaker}/sessions/session_${G.session}`,
+      name: `session_${G.session}_log.json`,
+      log: {
+        speaker: G.speaker,
+        session: G.session,
+        pack: { id: G.pack.id, name: G.pack.name },
+        withTelugu: G.withTelugu,
+        startedAt: new Date(G.startedAt).toISOString(),
+        finishedAt: new Date().toISOString(),
+        xp: G.xp,
+        bestStreak: G.bestStreak,
+        totals: { prompts: G.queue.length, recorded, skipped },
+        items: G.queue.map((item, i) => ({
+          id: item.id,
+          telugu: item.te,
+          english: item.en,
+          segment: item.segment,
+          outcome: G.results[i] || 'not reached',
+        })),
       },
     };
 
     try {
-      const res = await SolarisStore.save(record);
-      S.submitting = false;
-
-      if (res.queued) {
-        btn.className = 'done';
-        $('submitLbl').textContent = 'Queued Offline';
-        $('submitIcon').textContent = '⏳';
-        showAlert('errSave',
-          `Saved on this device and queued for upload.\nReason: ${res.reason}\nIt will upload when the server is reachable.`,
-          'warn');
-      } else {
-        btn.className = 'done';
-        $('submitLbl').textContent = 'Saved ✓';
-        $('submitIcon').textContent = '✓';
-        $('sfiles').innerHTML = '';
-        (res.files || []).forEach(f => {
-          const div = document.createElement('div');
-          div.className = 'sfile';
-          div.textContent = f;
-          $('sfiles').appendChild(div);
-        });
-        $('upload-note').textContent = `Saved to: ${res.savedTo}`;
-        $('success-panel').classList.add('show');
-        $('idleNote').style.display = 'none';
+      const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/session-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      // The server folds this session into the account's lifetime totals and
+      // hands back the updated profile, so the level shown stays truthful.
+      const data = await r.json().catch(() => ({}));
+      if (data && data.profile) {
+        SolarisAuth.updateUser(data.profile);
+        $('doneSub').textContent += ` Level ${data.profile.level} · ${data.profile.stats.xp} XP total.`;
       }
-
-      refreshQueue();
-      setTimeout(() => resetForm(), 3000);
-    } catch (err) {
-      S.submitting = false;
-      console.error('[SUBMIT]', err);
-      showAlert('errSave', `Save failed: ${err.message}`, 'err');
-      btn.className = 'ready';
-      btn.disabled = false;
-      $('submitLbl').textContent = 'Retry Save';
-      $('submitIcon').textContent = '↑';
+    } catch {
+      // The per-word saves already carry the important data; the log is extra.
     }
   }
 
-  function resetForm() {
-    ['B', 'T'].forEach(reRecord);
-    $('trans-text').value = '';
-    $('tstatus').textContent = 'Waiting for Telugu audio…';
-    $('success-panel').classList.remove('show');
-    $('idleNote').style.display = '';
-    clearAlert('errSubmit');
-    clearAlert('errSave');
-    clearAlert('errTrans');
-
-    // Speaker and session persist across takes; the letter is what changes,
-    // so advance nothing and let the operator pick the next one.
-    updateMeta();
-    updateSubmit();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // ── Offline queue ───────────────────────────────────────────────────────────
-  async function refreshQueue() {
-    const n = await SolarisStore.pending();
-    $('queueCount').textContent = n;
-    $('queuePill').classList.toggle('show', n > 0);
-  }
-
-  async function flushQueue() {
-    const pill = $('queuePill');
-    pill.disabled = true;
-    try {
-      const res = await SolarisStore.flush();
-      if (res.sent > 0) showAlert('errSave', `Uploaded ${res.sent} queued session(s).`, 'ok');
-      else if (res.remaining > 0) showAlert('errSave', 'Still offline — the queue is intact and will retry.', 'warn');
-    } finally {
-      pill.disabled = false;
-      refreshQueue();
+  function confetti() {
+    const colors = ['#e4322b', '#ffc24d', '#34c77b', '#5cc8ff', '#ff6f91', '#dfe6f2'];
+    const layer = document.createElement('div');
+    layer.className = 'confetti';
+    for (let i = 0; i < 70; i++) {
+      const bit = document.createElement('span');
+      bit.style.left = Math.random() * 100 + 'vw';
+      bit.style.background = colors[i % colors.length];
+      bit.style.animationDuration = (1.9 + Math.random() * 1.5) + 's';
+      bit.style.animationDelay = (Math.random() * 0.5) + 's';
+      bit.style.transform = `rotate(${Math.random() * 360}deg)`;
+      layer.appendChild(bit);
     }
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 4200);
   }
 
-  // ── Alerts ──────────────────────────────────────────────────────────────────
-  function showAlert(id, msg, type) {
-    const el = $(id);
-    if (!el) return;
-    el.textContent = msg;
-    el.className = `alert ${type} show`;
-  }
-
-  function clearAlert(id) {
-    const el = $(id);
-    if (!el) return;
-    el.textContent = '';
-    el.className = 'alert';
-  }
-
-  function setBusy(side, msg) {
-    showAlert('err' + side, msg, 'warn');
+  function quit() {
+    if (G.isRec) stopRecording();
+    if (G.index > 0 && !confirm('End this session? Words already recorded are saved.')) return;
+    finish();
   }
 
   // ── Wiring ──────────────────────────────────────────────────────────────────
-  /** Show who is signed in, and offer the way in when nobody is. */
-  async function paintUser() {
-    const pill = $('userPill');
-    if (!pill) return;
-
-    await SolarisAuth.refresh();
-    const user = SolarisAuth.user;
-
-    if (user) {
-      pill.hidden = false;
-      pill.textContent = `${user.displayName || user.username} · Lv ${user.level}`;
-      pill.title = 'Signed in';
-      return;
-    }
-
-    if (await SolarisAuth.serverRequiresAuth()) {
-      pill.hidden = false;
-      pill.textContent = 'Sign in';
-      pill.style.cursor = 'pointer';
-      pill.onclick = () => { location.href = 'play.html'; };
-    } else {
-      pill.hidden = true;
-    }
-  }
-
   function init() {
     SolarisStore.configure({ baseUrl: CONFIG.serverUrl });
-    SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
-    paintUser();
 
-    // Read-only handle on the capture state. A phone in the field has no
-    // devtools worth using, so being able to ask a remote operator to read
-    // this out is the difference between diagnosing a bad session and
-    // guessing at it.
-    window.__solarisDebug = S;
-
-    const sel = $('tel-letter');
-    LETTERS.forEach(l => {
-      const o = document.createElement('option');
-      o.value = o.textContent = l;
-      sel.appendChild(o);
+    G.speaker = localStorage.getItem('solaris_spk') || 'SPK001';
+    $('portal-speaker').value = G.speaker;
+    // Progress is tracked per speaker, so the cards have to be redrawn when
+    // the id changes — but not on every keystroke, which would rebuild the
+    // grid under the operator's finger.
+    let speakerTimer;
+    $('portal-speaker').addEventListener('input', (e) => {
+      G.speaker = e.target.value.trim().toUpperCase() || 'SPK001';
+      localStorage.setItem('solaris_spk', G.speaker);
+      clearTimeout(speakerTimer);
+      speakerTimer = setTimeout(refreshPackProgress, 250);
     });
 
-    $('spk-id').value     = loadMeta('spk');
-    $('tel-letter').value = loadMeta('letter');
-    $('seg-type').value   = loadMeta('seg');
-    $('sess-num').value   = loadMeta('sess');
-
-    const bind = (id, key) => $(id).addEventListener('input', (e) => {
-      saveMeta(key, e.target.value);
-      updateMeta();
+    const toggle = $('toggleTelugu');
+    toggle.addEventListener('click', () => {
+      const on = toggle.classList.toggle('on');
+      toggle.setAttribute('aria-checked', String(on));
     });
-    bind('spk-id', 'spk');
-    bind('sess-num', 'sess');
-    $('tel-letter').addEventListener('change', (e) => { saveMeta('letter', e.target.value); updateMeta(); });
-    $('seg-type').addEventListener('change', (e) => { saveMeta('seg', e.target.value); updateMeta(); });
 
-    const metaCard = $('card-meta');
+    $('btnAuthSubmit').addEventListener('click', submitAuth);
+    $('btnAuthToggle').addEventListener('click', () => {
+      authMode = authMode === 'login' ? 'register' : 'login';
+      paintAuthMode();
+    });
+    $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+    $('btnSignOut').addEventListener('click', signOut);
 
-    // A session is dozens of takes from the same speaker: the metadata is
-    // filled once and then only the letter changes. On a return visit the
-    // card starts folded so the record buttons are on the first screen
-    // instead of below the fold.
-    if (localStorage.getItem('solaris_returning') === '1') {
-      metaCard.classList.add('collapsed');
-      $('metaToggle').setAttribute('aria-expanded', 'false');
+    $('btnRecord').addEventListener('click', toggleRecord);
+    $('btnSkip').addEventListener('click', skipWord);
+    $('btnSpeak').addEventListener('click', speakPrompt);
+    $('btnReplay').addEventListener('click', replayTake);
+    $('btnRetry').addEventListener('click', retryTake);
+    $('btnContinue').addEventListener('click', continueFlow);
+    $('btnQuit').addEventListener('click', quit);
+    $('btnHome').addEventListener('click', () => show('portal'));
+
+    // Voice list loads asynchronously in most browsers.
+    if ('speechSynthesis' in window) {
+      speechSynthesis.onvoiceschanged = () => {
+        if (!$('screen-play').hidden) $('btnSpeak').hidden = !hasTeluguVoice();
+      };
     }
-    localStorage.setItem('solaris_returning', '1');
 
-    const toggleMeta = () => {
-      const collapsed = metaCard.classList.toggle('collapsed');
-      $('metaToggle').setAttribute('aria-expanded', String(!collapsed));
-    };
-    $('metaToggle').addEventListener('click', toggleMeta);
-    $('metaToggle').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMeta(); }
-    });
-
-    ['B', 'T'].forEach(side => {
-      $('btn' + side).addEventListener('click', () => toggleRec(side));
-      $('rerec' + side).addEventListener('click', () => reRecord(side));
-      setupPlayer(side);
-    });
-
-    // Cleaned/Original only changes what you hear and see; both versions are
-    // uploaded either way.
-    const setVersion = (clean) => {
-      S.useClean = clean;
-      $('segClean').classList.toggle('on', clean);
-      $('segRaw').classList.toggle('on', !clean);
-      ['B', 'T'].forEach(side => {
-        if (!S.rec[side]) return;
-        if (S.audio[side]) {
-          S.audio[side].pause();
-          URL.revokeObjectURL(S.audio[side].src);
-          S.audio[side] = null;
-          $('play' + side).textContent = '▶';
-        }
-        drawWave(side, 0);
-      });
-    };
-    $('segClean').addEventListener('click', () => setVersion(true));
-    $('segRaw').addEventListener('click', () => setVersion(false));
-
-    $('chipSarvam').addEventListener('click', () => selectSTT('sarvam'));
-    $('chipGroq').addEventListener('click', () => selectSTT('groq'));
-    $('btn-submit').addEventListener('click', handleSubmit);
-    $('queuePill').addEventListener('click', flushQueue);
-
-    selectSTT(CONFIG.activeSTT);
-    updateMeta();
-    updateSubmit();
-    checkServer();
-
-    // Redraw waveforms on rotation, since the canvas is sized in device pixels.
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => ['B', 'T'].forEach(s => S.rec[s] && drawWave(s)), 150);
-    });
-
-    // Coming back from a locked screen: re-check the server and re-arm the
-    // wake lock, which the platform drops on backgrounding.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'visible') return;
-      checkServer();
-      if (S.isRec.B || S.isRec.T) requestWakeLock();
+      if (document.visibilityState === 'visible' && G.isRec) requestWakeLock();
     });
 
-    window.addEventListener('online', () => { checkServer(); flushQueue(); });
+    window.addEventListener('online', () => { SolarisStore.flush().catch(() => {}); });
 
-    // Losing an in-progress take to a stray back-swipe is unrecoverable.
     window.addEventListener('beforeunload', (e) => {
-      if (S.isRec.B || S.isRec.T || S.rec.B || S.rec.T) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
+      if (G.isRec || (G.index > 0 && !$('screen-play').hidden)) { e.preventDefault(); e.returnValue = ''; }
     });
 
-    if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
-    }
+    // Read-only handle for diagnosing a session from a phone with no devtools.
+    window.__solarisGame = G;
+
+    SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
+    loadPacks();
+    checkServer();
+    decideStartScreen();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
