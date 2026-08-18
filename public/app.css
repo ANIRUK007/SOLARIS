@@ -106,7 +106,7 @@ body::after {
 }
 .seg.done::after    { background: linear-gradient(90deg, var(--lime), var(--gold)); transform: scaleX(1); box-shadow: 0 0 8px rgba(43, 232, 107, .7); }
 .seg.skipped::after { background: var(--text-3); transform: scaleX(1); }
-.seg.current::after { background: var(--gold); transform: scaleX(.4); }
+.seg.current::after { background: var(--set, var(--gold)); transform: scaleX(.4); }
 
 .streak-pill {
   display: flex;
@@ -137,9 +137,9 @@ body::after {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 18px;
+  gap: 16px;
   min-height: 0;
-  padding: 10px 0;
+  padding: 4px 0 10px;
 }
 
 .instruction {
@@ -151,18 +151,39 @@ body::after {
 }
 .instruction .lang { color: var(--gold); }
 
-/* The card is the embroidered panel: indigo ground, crimson stitch, and a
-   run of mirrors along the top edge. */
+/* The session takes the colour of the set being recorded. */
+#screen-play[data-accent='hot']    { --set: var(--hot);    --set-soft: rgba(255, 46, 99, .3); }
+#screen-play[data-accent='lime']   { --set: var(--lime);   --set-soft: rgba(43, 232, 107, .3); }
+#screen-play[data-accent='gold']   { --set: var(--gold);   --set-soft: rgba(255, 201, 60, .3); }
+#screen-play[data-accent='cyan']   { --set: var(--cyan);   --set-soft: rgba(34, 211, 238, .3); }
+#screen-play[data-accent='violet'] { --set: var(--violet); --set-soft: rgba(168, 85, 247, .35); }
+
+.prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.prompt-pos {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--text-3);
+}
+
+/* The prompt panel. */
 .prompt-card {
   background: linear-gradient(165deg, #2e1a5c, var(--bg-2) 60%, #1d0f3f);
-  border: var(--bd-hi) solid rgba(168, 85, 247, .45);
+  border: var(--bd-hi) solid var(--set-soft, rgba(168, 85, 247, .45));
   border-radius: var(--r-xl);
-  padding: 26px 20px;
+  padding: 22px 20px 26px;
   text-align: center;
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 20px 50px -24px rgba(168, 85, 247, .55),
+    0 20px 50px -24px var(--set-soft, rgba(168, 85, 247, .55)),
     inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 /* A bright sheen across the top edge, like light on a glossy panel. */
@@ -179,7 +200,7 @@ body::after {
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--hot), var(--gold), var(--lime), var(--cyan), var(--violet));
+  background: linear-gradient(90deg, transparent, var(--set, var(--violet)), transparent);
 }
 .prompt-card.enter { animation: cardIn .4s cubic-bezier(.22, 1, .36, 1); }
 @keyframes cardIn {
@@ -198,12 +219,15 @@ body::after {
   font-weight: 600;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: #ecd9ff;
-  background: rgba(168, 85, 247, .3);
-  border: var(--bd) solid rgba(168, 85, 247, .65);
+  color: var(--set, var(--violet));
+  background: color-mix(in srgb, var(--set, var(--violet)) 18%, transparent);
+  border: var(--bd) solid color-mix(in srgb, var(--set, var(--violet)) 55%, transparent);
   border-radius: 99px;
-  padding: 6px 14px;
-  margin: 4px 0 18px;
+  padding: 6px 13px;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The Telugu word owns the screen. Pure white against indigo for the
@@ -215,7 +239,7 @@ body::after {
   color: #ffffff;
   word-break: break-word;
   margin-bottom: 12px;
-  text-shadow: 0 0 28px rgba(168, 85, 247, .55), 0 2px 0 rgba(0, 0, 0, .3);
+  text-shadow: 0 0 30px var(--set-soft, rgba(168, 85, 247, .55)), 0 2px 0 rgba(0, 0, 0, .3);
 }
 .word-translit {
   font-family: var(--mono);
@@ -227,18 +251,18 @@ body::after {
 .word-en { font-size: 15px; color: var(--text-2); }
 
 .speak-btn {
-  margin-top: 18px;
+  margin-top: 20px;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  min-height: var(--tap);
-  padding: 12px 20px;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
   border-radius: 99px;
-  border: var(--bd) solid rgba(34, 211, 238, .4);
-  background: rgba(34, 211, 238, .1);
-  color: var(--cyan);
-  font-size: 15px;
-  font-weight: 700;
+  border: var(--bd) solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 600;
   cursor: pointer;
   transition: background .15s, transform .08s;
 }
@@ -790,7 +814,7 @@ body::after {
   margin: 2px 2px -4px;
 }
 
-.pack-grid { display: flex; flex-direction: column; gap: 10px; }
+.pack-grid { display: flex; flex-direction: column; gap: 9px; }
 @media (min-width: 680px) {
   .pack-grid { display: grid; grid-template-columns: 1fr 1fr; }
 }
@@ -801,10 +825,10 @@ body::after {
 .pack {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
   width: 100%;
   text-align: left;
-  padding: 14px;
+  padding: 12px 13px;
   border-radius: var(--r);
   border: var(--bd) solid var(--bg-3);
   background: var(--bg-2);
@@ -816,7 +840,7 @@ body::after {
 .pack:active { transform: scale(.985); background: var(--bg-3); }
 
 .pack-icon {
-  width: 50px; height: 50px;
+  width: 46px; height: 46px;
   flex-shrink: 0;
   border-radius: 15px;
   display: grid;
@@ -838,7 +862,7 @@ body::after {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 9px;
+  margin-bottom: 8px;
 }
 .pack-name {
   font-size: 16px;
@@ -1026,14 +1050,24 @@ body::after {
 }
 
 /* ── ICONS ─────────────────────────────────────────────────────────────────── */
-/* One size rule for every icon: they inherit colour, so a button's own colour
-   is the icon's colour and nothing has to be restyled per context. */
+/* One rule for every icon.
+ *
+ * The stroke properties have to live here, not on the sprite's root <svg>.
+ * A <use> reference clones the symbol into a shadow tree, so presentation
+ * attributes on the sprite element never reach it — the clone inherits from
+ * this <svg> instead. Without these, every icon falls back to the SVG default
+ * of fill:black and stroke:none and renders as a black silhouette. */
 .ico {
   width: 1.15em;
   height: 1.15em;
   display: block;
   flex-shrink: 0;
   color: inherit;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .icon-btn .ico { width: 21px; height: 21px; }
 .streak-pill .ico { width: 17px; height: 17px; }

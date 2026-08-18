@@ -64,6 +64,19 @@ test('index.html loads the scripts it depends on, in order', () => {
   assert.ok(html.indexOf('icons.js') < html.indexOf('app.js'), 'icons.js must load before app.js');
 });
 
+test('icons are stroked, not filled black', () => {
+  const css = fs.readFileSync(path.join(pub, 'app.css'), 'utf8');
+  const rule = css.match(/\n\.ico \{([\s\S]*?)\}/);
+  assert.ok(rule, 'no .ico rule found');
+
+  // A <use> clone inherits from the referencing <svg>, not from the sprite,
+  // so these must be declared in CSS. Without them every icon renders as a
+  // black silhouette — which is exactly how this broke once.
+  assert.match(rule[1], /fill:\s*none/, '.ico does not set fill:none');
+  assert.match(rule[1], /stroke:\s*currentColor/, '.ico does not set stroke:currentColor');
+  assert.match(rule[1], /stroke-width/, '.ico does not set a stroke width');
+});
+
 test('the interface uses drawn icons, not emoji', () => {
   const icons = require('../public/icons.js');
   // Emoji render differently on every platform, cannot take the colour of

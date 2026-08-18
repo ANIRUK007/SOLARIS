@@ -524,6 +524,11 @@
     G.startedAt = Date.now();
 
     $('streakVal').textContent = G.streak;
+    $('streakBox').classList.toggle('cold', !G.streak);
+
+    // The set's colour follows it into the session, so the screen belongs to
+    // the thing being recorded rather than looking the same for all 15.
+    $('screen-play').dataset.accent = pack.accent || 'gold';
 
     buildSegbar();
     show('play');
@@ -564,7 +569,7 @@
 
     const card = $('promptCard');
     const paint = () => {
-      $('promptCat').textContent = item.segment || 'word';
+      $('promptCat').textContent = (G.pack && G.pack.name) || item.category || 'word';
       $('promptWord').textContent = item.te;
       $('promptTranslit').textContent = item.translit || '';
       $('promptEn').textContent = item.en ? `“${item.en}”` : '';
@@ -579,6 +584,7 @@
       $('recGlyph').innerHTML = ico('mic');
       $('btnRecord').classList.remove('recording');
       $('btnSkip').hidden = teluguPhase;   // the Banjara answer is what can be absent
+      $('promptPos').textContent = `${G.index + 1} of ${G.queue.length}`;
       $('recTimer').textContent = '00:00';
       $('meterBar').style.width = '0%';
       $('meterWrap').classList.remove('show');
@@ -1012,6 +1018,7 @@
     G.streak++;
     G.bestStreak = Math.max(G.bestStreak, G.streak);
     $('streakVal').textContent = G.streak;
+    $('streakBox').classList.toggle('cold', !G.streak);
     $('streakBox').classList.add('pulse');
     setTimeout(() => $('streakBox').classList.remove('pulse'), 500);
 
@@ -1038,6 +1045,7 @@
 
     G.streak = 0;
     $('streakVal').textContent = '0';
+    $('streakBox').classList.add('cold');
     toast('Marked as “no Banjara word”');
     hideSheet();
     advance();
