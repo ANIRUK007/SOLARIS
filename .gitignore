@@ -1,0 +1,13 @@
+# Secrets — the whole point of moving the API keys server-side.
+.env
+
+# Self-signed certificates, machine-specific.
+certs/
+
+# Collected audio. The dataset does not belong in the code repository.
+dataset/
+
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
