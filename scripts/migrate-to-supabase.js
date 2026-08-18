@@ -14,7 +14,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { SupabaseDb, FileDb } = require('../db.js');
+const { SupabaseDb, FileDb, buildSeedRows, buildAccountRows } = require('../db.js');
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_KEY;
@@ -48,17 +48,11 @@ async function upsert(table, rows, conflictColumn, size = 200) {
   console.log(`\nMigrating into ${url}\n`);
 
   // ── Reference data ─────────────────────────────────────────────────────────
-  const words = JSON.parse(fs.readFileSync(path.join(root, 'data', 'words.json'), 'utf8'));
+  const wordsDoc = JSON.parse(fs.readFileSync(path.join(root, 'data', 'words.json'), 'utf8'));
+  const seed = buildSeedRows(wordsDoc);
 
-  await upsert('categories', words.categories.map((c, i) => ({
-    id: c.id, name: c.name, icon: c.icon, accent: c.accent,
-    description: c.description, sort_order: i,
-  })), 'id');
-
-  await upsert('words', words.words.map(w => ({
-    id: w.id, category: w.category, te: w.te, translit: w.translit,
-    en: w.en, level: w.level, word_order: w.order, active: true,
-  })), 'id');
+  await upsert('categories', seed.categories, 'id');
+  await upsert('words', seed.words, 'id');
 
   // ── Anything recorded while running on files ───────────────────────────────
   const usersFile = process.env.SOLARIS_USERS_FILE || path.join(root, '.solaris-users.json');
@@ -73,22 +67,9 @@ async function upsert(table, rows, conflictColumn, size = 200) {
       indexFile,
     });
 
-    const accounts = Object.values(local._users.users || {});
-    if (accounts.length) {
-      await upsert('contributors', accounts.map(u => ({
-        username: u.username,
-        display_name: u.displayName || u.username,
-        // The hashes move across as they are: they are already scrypt digests,
-        // and rehashing is impossible without the passwords.
-        password_hash: u.hash,
-        password_salt: u.salt,
-        xp: (u.stats && u.stats.xp) || 0,
-        words_count: (u.stats && u.stats.words) || 0,
-        streak: (u.stats && u.stats.streak) || 0,
-        best_streak: (u.stats && u.stats.bestStreak) || 0,
-        created_at: u.createdAt || new Date().toISOString(),
-        last_login_at: u.lastLoginAt || null,
-      })), 'username');
+    const accounts = buildAccountRows(local._users.users, local._index);
+    if (accounts.contributors.length) {
+      await upsert('contributors', accounts.contributors, 'username');
     }
 
     // The signing secret comes too, or every token issued so far stops working.
@@ -97,16 +78,9 @@ async function upsert(table, rows, conflictColumn, size = 200) {
       console.log('  token secret: carried over (existing sign-ins survive)');
     }
 
-    const contributions = [];
-    for (const [username, history] of Object.entries(local._index.contributors || {})) {
-      for (const [wordId, at] of Object.entries(history.recorded || {})) {
-        contributions.push({ contributor: username, word_id: wordId, outcome: 'recorded', created_at: at });
-      }
-      for (const [wordId, at] of Object.entries(history.skipped || {})) {
-        contributions.push({ contributor: username, word_id: wordId, outcome: 'skipped', created_at: at });
-      }
+    if (accounts.contributions.length) {
+      await upsert('contributions', accounts.contributions, 'contributor,word_id');
     }
-    if (contributions.length) await upsert('contributions', contributions, 'contributor,word_id');
   }
 
   // ── Check it landed ────────────────────────────────────────────────────────

@@ -381,4 +381,54 @@ function open(env = process.env, paths = {}) {
   });
 }
 
-module.exports = { FileDb, SupabaseDb, open, toRow, fromRow };
+/**
+ * The rows the migration sends to Supabase.
+ *
+ * These live here rather than inside the migration script so the test that
+ * inserts them into a real Postgres and the script that sends them to Supabase
+ * are building the same thing. A column name that drifts in one and not the
+ * other is exactly the failure that would only show up mid-migration.
+ */
+function buildSeedRows(wordsDoc) {
+  return {
+    categories: wordsDoc.categories.map((c, i) => ({
+      id: c.id, name: c.name, icon: c.icon, accent: c.accent,
+      description: c.description, sort_order: i,
+    })),
+    words: wordsDoc.words.map(w => ({
+      id: w.id, category: w.category, te: w.te, translit: w.translit,
+      en: w.en, level: w.level, word_order: w.order, active: true,
+    })),
+  };
+}
+
+function buildAccountRows(users, index) {
+  const contributors = Object.values(users || {}).map(u => ({
+    username: u.username,
+    display_name: u.displayName || u.username,
+    // Hashes move across as they are: they are already scrypt digests, and
+    // rehashing is impossible without the passwords.
+    password_hash: u.hash,
+    password_salt: u.salt,
+    xp: (u.stats && u.stats.xp) || 0,
+    words_count: (u.stats && u.stats.words) || 0,
+    streak: (u.stats && u.stats.streak) || 0,
+    best_streak: (u.stats && u.stats.bestStreak) || 0,
+    created_at: u.createdAt || new Date().toISOString(),
+    last_login_at: u.lastLoginAt || null,
+  }));
+
+  const contributions = [];
+  for (const [username, history] of Object.entries((index && index.contributors) || {})) {
+    for (const [wordId, at] of Object.entries(history.recorded || {})) {
+      contributions.push({ contributor: username, word_id: wordId, outcome: 'recorded', created_at: at });
+    }
+    for (const [wordId, at] of Object.entries(history.skipped || {})) {
+      contributions.push({ contributor: username, word_id: wordId, outcome: 'skipped', created_at: at });
+    }
+  }
+
+  return { contributors, contributions };
+}
+
+module.exports = { FileDb, SupabaseDb, open, toRow, fromRow, buildSeedRows, buildAccountRows };
