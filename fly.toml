@@ -1,0 +1,34 @@
+# Deploy to Fly.io:  fly launch --no-deploy  then  fly deploy
+#
+# Secrets are set separately and are never in this file:
+#   fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_KEY=...
+
+app = "solaris"
+primary_region = "bom"     # Mumbai: closest to the fieldwork
+
+[build]
+
+[env]
+  PORT = "3001"
+  SOLARIS_TRUST_PROXY = "true"
+  SOLARIS_TIMEZONE = "Asia/Kolkata"
+  SOLARIS_OPEN_REGISTRATION = "true"
+
+[http_service]
+  internal_port = 3001
+  force_https = true       # the microphone needs a secure origin
+  auto_stop_machines = false   # a stopped machine drops the request that woke it
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"
+  method = "GET"
+  path = "/health"

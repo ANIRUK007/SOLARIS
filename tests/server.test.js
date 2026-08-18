@@ -149,10 +149,15 @@ test('POST /save contains path traversal inside the dataset directory', async ()
   const j = await r.json();
 
   assert.strictEqual(r.status, 200, JSON.stringify(j));
-  // Both the folder and the filename must have been neutralised.
-  assert.ok(j.savedTo.startsWith(DATASET), `escaped to ${j.savedTo}`);
+
+  // savedTo is now a storage key, not a filesystem path — the same string
+  // whether it lands on disk or in a bucket. Both the folder and the filename
+  // must have been neutralised.
+  assert.ok(!path.isAbsolute(j.savedTo), `an absolute path came back: ${j.savedTo}`);
+  assert.ok(!j.savedTo.includes('..'), `traversal survived: ${j.savedTo}`);
   assert.ok(!fs.existsSync('/tmp/solaris-escape'), 'wrote outside the dataset directory');
-  assert.ok(fs.existsSync(path.join(j.savedTo, 'escaped.wav')), 'filename was not flattened as expected');
+  assert.ok(fs.existsSync(path.join(DATASET, j.savedTo, 'escaped.wav')),
+    'the filename was not flattened into the safe folder');
 });
 
 test('POST /save rejects a request with missing fields', async () => {

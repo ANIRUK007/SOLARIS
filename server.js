@@ -23,6 +23,7 @@ const { Auth, levelFor, xpForLevel } = require('./auth.js');
 const { Words } = require('./words.js');
 const { open: openDb } = require('./db.js');
 const { RateLimiter, headers: securityHeaders, clientAddress } = require('./security.js');
+const { open: openStorage } = require('./storage.js');
 
 const http  = require('http');
 const https = require('https');
@@ -104,6 +105,11 @@ const db = openDb(process.env, {
 
 const auth = new Auth(db);
 const words = new Words(db);
+
+// The recordings themselves. On a hosted platform the local filesystem is
+// wiped on every redeploy, so audio has to go to object storage or it is not
+// really being kept.
+const audio = openStorage(process.env, { root: BASE_PATH });
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -258,6 +264,22 @@ function parseMultipart(body, boundary) {
  * guaranteed to sit inside BASE_PATH. Accepts either separator style, since
  * the browser may be on Windows, macOS, Android or iOS.
  */
+/**
+ * A client-supplied folder, reduced to something safe to use as a key in
+ * either backend. Accepts either separator style, since the browser may be on
+ * Windows, macOS, Android or iOS.
+ */
+function safeFolder(relFolder) {
+  const cleaned = String(relFolder)
+    .replace(/\\/g, '/')
+    .split('/')
+    .map(seg => seg.trim())
+    .filter(seg => seg && seg !== '.' && seg !== '..')
+    .map(seg => seg.replace(/[<>:"|?*\x00-\x1f]/g, '_'))
+    .join('/');
+  return cleaned || null;
+}
+
 function resolveInsideBase(relFolder) {
   const cleaned = String(relFolder)
     .replace(/\\/g, '/')
@@ -395,63 +417,53 @@ async function handleSave(req, res, username) {
     });
   }
 
-  const saveDir = resolveInsideBase(folderPathPart.data.toString('utf8'));
-  if (!saveDir) return sendJSON(res, 400, { error: 'Invalid folder path' });
-  mkdirSafe(saveDir);
+  const relFolder = safeFolder(folderPathPart.data.toString('utf8'));
+  if (!relFolder) return sendJSON(res, 400, { error: 'Invalid folder path' });
 
-  const bnjPath = path.join(saveDir, safeName(get('bnj_name')?.data.toString('utf8'), 'banjara.wav'));
-  const txtPath = path.join(saveDir, safeName(get('txt_name')?.data.toString('utf8'), 'telugu.txt'));
+  const bnjName = safeName(get('bnj_name')?.data.toString('utf8'), 'banjara.wav');
+  const txtName = safeName(get('txt_name')?.data.toString('utf8'), 'telugu.txt');
 
-  fs.writeFileSync(bnjPath, banjaraPart.data);
-  fs.writeFileSync(txtPath, transcriptPart.data.toString('utf8'));
+  const written = [];
+  const store = async (name, bytes, type) => {
+    await audio.put(`${relFolder}/${name}`, bytes, type);
+    written.push(name);
+  };
 
-  const written = [path.basename(bnjPath), path.basename(txtPath)];
+  await store(bnjName, banjaraPart.data, 'audio/wav');
+  await store(txtName, Buffer.from(transcriptPart.data.toString('utf8'), 'utf8'), 'text/plain');
 
   if (teluguPart) {
-    const telPath = path.join(saveDir, safeName(get('tel_name')?.data.toString('utf8'), 'telugu.wav'));
-    fs.writeFileSync(telPath, teluguPart.data);
-    written.push(path.basename(telPath));
+    await store(safeName(get('tel_name')?.data.toString('utf8'), 'telugu.wav'), teluguPart.data, 'audio/wav');
   }
 
-  // Optional extras. The client sends the unfiltered takes so the archive
-  // keeps the source audio, plus a session.json describing how the cleaned
-  // version was produced.
-  const extras = [
+  // The unfiltered takes are kept beside the cleaned ones: filtering is lossy
+  // and its thresholds will be retuned, so the source audio has to survive.
+  for (const [field, nameField, fallback] of [
     ['banjara_raw', 'bnj_raw_name', 'banjara_raw.wav'],
-    ['telugu_raw',  'tel_raw_name', 'telugu_raw.wav'],
-  ];
-  for (const [field, nameField, fallback] of extras) {
+    ['telugu_raw', 'tel_raw_name', 'telugu_raw.wav'],
+  ]) {
     const part = get(field);
     if (!part) continue;
-    const target = path.join(saveDir, safeName(get(nameField)?.data.toString('utf8'), fallback));
-    fs.writeFileSync(target, part.data);
-    written.push(path.basename(target));
+    await store(safeName(get(nameField)?.data.toString('utf8'), fallback), part.data, 'audio/wav');
   }
 
   let parsedMeta = null;
-
   const metaPart = get('metadata');
   if (metaPart) {
     // Stamp the signed-in user server-side. Provenance the client could edit
     // is not provenance.
-    let meta;
-    try { meta = JSON.parse(metaPart.data.toString('utf8')); }
-    catch { meta = { raw: metaPart.data.toString('utf8') }; }
-    meta.recordedBy = username || null;
-    meta.receivedAt = new Date().toISOString();
-    parsedMeta = meta;
+    try { parsedMeta = JSON.parse(metaPart.data.toString('utf8')); }
+    catch { parsedMeta = { raw: metaPart.data.toString('utf8') }; }
+    parsedMeta.recordedBy = username || null;
+    parsedMeta.receivedAt = new Date().toISOString();
 
-    const metaPath = path.join(saveDir, 'session.json');
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-    written.push('session.json');
+    await store('session.json', Buffer.from(JSON.stringify(parsedMeta, null, 2), 'utf8'), 'application/json');
   }
 
   // Credit the contribution now, not when the set is finished.
   let profile = null;
   let awarded = 0;
   if (username) {
-    // Mark the prompt as covered so the randomiser stops handing it out to
-    // this contributor and starts favouring thinner words for everyone else.
     const scores = (parsedMeta && parsedMeta.scores) || {};
     const credit = await auth.recordWord(username, { score: scores.banjara });
     if (credit) { profile = credit.profile; awarded = credit.xp; }
@@ -462,14 +474,14 @@ async function handleSave(req, res, username) {
         quality: scores.banjara,
         xp: awarded,
         durationMs: parsedMeta.durations && Math.round((parsedMeta.durations.banjara || 0) * 1000),
-        storagePath: path.relative(BASE_PATH, saveDir),
+        storagePath: relFolder,
       });
     }
   }
 
-  console.log(`[SAVED] ${saveDir} (${written.length} files)${awarded ? ` +${awarded} XP` : ''}`);
+  console.log(`[SAVED] ${relFolder} (${written.length} files, ${audio.name})${awarded ? ` +${awarded} XP` : ''}`);
 
-  sendJSON(res, 200, { success: true, savedTo: saveDir, files: written, profile, xp: awarded });
+  sendJSON(res, 200, { success: true, savedTo: relFolder, files: written, profile, xp: awarded });
 }
 
 // ── Session log ───────────────────────────────────────────────────────────────
@@ -491,15 +503,14 @@ async function handleSessionLog(req, res, username) {
     return sendJSON(res, 400, { error: 'Expected { folder, log } in the body' });
   }
 
-  const dir = resolveInsideBase(payload.folder);
-  if (!dir) return sendJSON(res, 400, { error: 'Invalid folder path' });
-  mkdirSafe(dir);
+  const folder = safeFolder(payload.folder);
+  if (!folder) return sendJSON(res, 400, { error: 'Invalid folder path' });
 
   const log = { ...payload.log, recordedBy: username || null, receivedAt: new Date().toISOString() };
 
   const name = safeName(payload.name, 'session_log.json');
-  const target = path.join(dir, name);
-  fs.writeFileSync(target, JSON.stringify(log, null, 2));
+  const target = `${folder}/${name}`;
+  await audio.put(target, Buffer.from(JSON.stringify(log, null, 2), 'utf8'), 'application/json');
 
   // Roll the session into the user's lifetime totals — the reason the
   // completion screen can show a level rather than just one session's XP.
@@ -759,6 +770,7 @@ const scheme = haveCerts ? 'https' : 'http';
 async function boot() {
   await auth.init();
   await words.init();
+  if (audio.ensureBucket) await audio.ensureBucket();
   server.listen(PORT, '0.0.0.0', onListening);
 }
 
@@ -773,6 +785,7 @@ async function onListening() {
   }
   console.log(`  Dataset     : ${BASE_PATH}`);
   console.log(`  Database    : ${db.name === 'supabase' ? 'Supabase' : 'local files (set SUPABASE_URL to move)'}`);
+  console.log(`  Recordings  : ${audio.name === 'supabase' ? `Supabase Storage (${audio.bucket})` : BASE_PATH}`);
   console.log(`  STT engines : ${engines.length ? engines.join(', ') : 'none configured (transcribe manually)'}`);
   console.log(`  Accounts    : ${auth.userCount === 0 ? 'none yet — the first sign-up becomes the first user' : `${auth.userCount} registered (sign-in required)`}`);
   const cov = await words.coverageSummary();

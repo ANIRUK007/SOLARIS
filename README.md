@@ -261,6 +261,87 @@ Supabase directly from the phone, policies have to be written before that ships
 | `sessions` | the run sheet for each sitting |
 | `app_secrets` | the token-signing key, so a restart does not sign everyone out |
 
+## Where a recording ends up
+
+One saved word writes four objects under a key built from the contributor, the
+word set and the prompt:
+
+```
+contributors/anirudh/places/tel_pl_037/
+├── anirudh_tel_pl_037_banjara.wav       cleaned, 16 kHz mono — train on this
+├── anirudh_tel_pl_037_banjara_raw.wav   untouched original
+├── anirudh_tel_pl_037_telugu.txt        the prompt, which is the transcript
+└── session.json                          quality scores, durations, filter settings
+```
+
+and one row in `contributions` tying contributor → word → quality → that key.
+
+Where those objects live depends on configuration, and the same rule applies as
+for the database: Supabase when configured, disk otherwise. **On a hosted
+platform this matters more than anything else in this file** — Render, Fly and
+Railway all wipe the local filesystem on every redeploy, so audio written to
+disk there is audio that will be lost. Set `SUPABASE_URL` and the recordings go
+to Supabase Storage, in a private bucket created on first boot.
+
+Consent to contribute to a language archive is not consent to be published, so
+the bucket is private and stays private. A single recording can be shared with
+a time-limited signed link.
+
+### Getting the data out
+
+```bash
+npm run export ./export
+```
+
+Reads the contributions table, downloads each recording from wherever it is
+stored, and writes:
+
+```
+export/
+├── audio/<contributor>/<category>/<word>/…wav
+├── manifest.jsonl     one JSON object per line — what most training code wants
+└── manifest.csv       the same thing for a spreadsheet
+```
+
+Each manifest row carries the audio path, the Telugu prompt and its
+transliteration and gloss, the word id and category, the contributor, the
+quality score and the sample rate. That pairing is the dataset: a folder of WAVs
+with no index is not one, and the link between a Banjara recording and its
+Telugu prompt lives in the database rather than in the audio.
+
+Re-running skips what it already has, so an interrupted export continues.
+
+## Deploying
+
+The app is plain Node with no dependencies and no build step, so the image is
+the runtime plus this repository.
+
+```bash
+# Fly.io — Mumbai region, closest to the fieldwork
+fly launch --no-deploy
+fly secrets set SUPABASE_URL=https://yourproject.supabase.co SUPABASE_SERVICE_KEY=sb_secret_...
+fly deploy
+```
+
+Render reads `render.yaml`; set the two Supabase variables in its dashboard
+rather than in the file.
+
+Three things to get right whatever the platform:
+
+- **TLS must be terminated for you.** Browsers only release the microphone on a
+  secure origin, and a self-signed certificate means every contributor taps
+  through a warning — which teaches exactly the wrong instinct. A real
+  certificate is the difference between a demo and something people use.
+- **`SOLARIS_TRUST_PROXY=true`**, but only behind a proxy. The rate limiter
+  counts per address, and behind a load balancer every request otherwise looks
+  like it came from the balancer. Set it where it is not true and anyone can
+  spoof a header for a fresh quota.
+- **Do not let the platform sleep the process.** A free tier that idles will
+  drop the request that wakes it, and that request is somebody's recording.
+
+The service key belongs in the platform's secret store, never in the repository.
+`.env` is gitignored; `.dockerignore` keeps it out of the image as well.
+
 ## Storage, and the move to cloud
 
 Everything saved goes through one seam, `public/store.js`:

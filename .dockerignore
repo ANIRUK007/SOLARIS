@@ -1,0 +1,9 @@
+.git
+node_modules
+dataset
+certs
+tests/screenshots
+.env
+.solaris-users.json
+.solaris-words.json
+export
