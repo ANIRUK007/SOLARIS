@@ -28,6 +28,7 @@
   </div>
   <div class="hdr-right">
     <a class="srv-pill" href="play.html" style="color:var(--amber);border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.07);text-decoration:none">▶ Word session</a>
+    <span class="srv-pill" id="userPill" hidden></span>
     <span class="srv-pill checking" id="srvPill">
       <span class="srv-dot"></span><span id="srvLbl">checking…</span>
     </span>
@@ -223,6 +224,7 @@
 </div>
 
 <!-- dsp.js and store.js publish the globals app.js uses on startup, so order matters. -->
+<script src="auth.js"></script>
 <script src="dsp.js"></script>
 <script src="store.js"></script>
 <script src="app.js"></script>

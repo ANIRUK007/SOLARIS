@@ -19,6 +19,8 @@
  *   SSL_CERT / SSL_KEY    paths to a cert/key pair; defaults to ./certs/*
  */
 
+const { Auth, levelFor, xpForLevel } = require('./auth.js');
+
 const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
@@ -52,6 +54,10 @@ const SSL_KEY  = process.env.SSL_KEY  || path.join(__dirname, 'certs', 'key.pem'
 
 const MAX_BODY_BYTES = 60 * 1024 * 1024;   // one session is a few hundred KB; this is slack
 
+// Accounts live next to the server, not in the dataset — the dataset gets
+// copied around and shared, and password hashes should not travel with it.
+const auth = new Auth(process.env.SOLARIS_USERS_FILE || path.join(__dirname, '.solaris-users.json'));
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'text/javascript; charset=utf-8',
@@ -71,7 +77,7 @@ function mkdirSafe(dirPath) {
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
 function sendJSON(res, code, obj) {
@@ -108,6 +114,39 @@ function lanAddresses() {
     }
   }
   return out;
+}
+
+/** Pull a bearer token off the request, from the header or a query string
+ *  (the latter so a plain <a> can carry one if it ever needs to). */
+function bearer(req) {
+  const header = req.headers.authorization || '';
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  if (m) return m[1].trim();
+  const q = req.url.split('?')[1];
+  if (q) {
+    const found = new URLSearchParams(q).get('token');
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Who is making this request.
+ *
+ * Before anyone has registered, the server is still being set up, so writes
+ * are allowed unauthenticated — otherwise the first user could never get in.
+ * As soon as an account exists, writes require a valid token.
+ *
+ * @returns {{ok: true, user: string|null} | {ok: false}}
+ */
+function requireUser(req, res) {
+  const username = auth.verifyToken(bearer(req));
+  if (username) return { ok: true, user: username };
+
+  if (!auth.isBootstrapped) return { ok: true, user: null };
+
+  sendJSON(res, 401, { error: 'Sign in to continue.', code: 'auth_required' });
+  return { ok: false };
 }
 
 // ── Multipart parser ──────────────────────────────────────────────────────────
@@ -269,7 +308,7 @@ async function sttGroq(blob, filename) {
 }
 
 // ── Save handler ──────────────────────────────────────────────────────────────
-async function handleSave(req, res) {
+async function handleSave(req, res, username) {
   const ct = req.headers['content-type'] || '';
   const bm = ct.match(/boundary=("?)(.+)\1$/);
   if (!bm) return sendJSON(res, 400, { error: 'No multipart boundary in Content-Type' });
@@ -331,8 +370,16 @@ async function handleSave(req, res) {
 
   const metaPart = get('metadata');
   if (metaPart) {
+    // Stamp the signed-in user server-side. Provenance the client could edit
+    // is not provenance.
+    let meta;
+    try { meta = JSON.parse(metaPart.data.toString('utf8')); }
+    catch { meta = { raw: metaPart.data.toString('utf8') }; }
+    meta.recordedBy = username || null;
+    meta.receivedAt = new Date().toISOString();
+
     const metaPath = path.join(saveDir, 'session.json');
-    fs.writeFileSync(metaPath, metaPart.data.toString('utf8'));
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     written.push('session.json');
   }
 
@@ -348,7 +395,7 @@ async function handleSave(req, res) {
  * cannot express any of that, and "this word has no Banjara form" is a finding
  * worth keeping rather than an empty slot.
  */
-async function handleSessionLog(req, res) {
+async function handleSessionLog(req, res, username) {
   let body;
   try { body = await readBody(req, res); } catch { return; }
 
@@ -364,12 +411,70 @@ async function handleSessionLog(req, res) {
   if (!dir) return sendJSON(res, 400, { error: 'Invalid folder path' });
   mkdirSafe(dir);
 
+  const log = { ...payload.log, recordedBy: username || null, receivedAt: new Date().toISOString() };
+
   const name = safeName(payload.name, 'session_log.json');
   const target = path.join(dir, name);
-  fs.writeFileSync(target, JSON.stringify(payload.log, null, 2));
+  fs.writeFileSync(target, JSON.stringify(log, null, 2));
+
+  // Roll the session into the user's lifetime totals — the reason the
+  // completion screen can show a level rather than just one session's XP.
+  let profile = null;
+  if (username) {
+    profile = auth.recordSession(username, {
+      xp: log.xp,
+      words: log.totals && log.totals.recorded,
+      bestStreak: log.bestStreak,
+    });
+  }
 
   console.log(`[LOG] ${target}`);
-  sendJSON(res, 200, { success: true, savedTo: target });
+  sendJSON(res, 200, { success: true, savedTo: target, profile });
+}
+
+// ── Auth routes ───────────────────────────────────────────────────────────────
+async function readJSON(req, res) {
+  const body = await readBody(req, res);
+  try { return JSON.parse(body.toString('utf8')); }
+  catch { sendJSON(res, 400, { error: 'Body must be JSON' }); return null; }
+}
+
+async function handleRegister(req, res) {
+  const payload = await readJSON(req, res);
+  if (!payload) return;
+
+  // Open only while nobody has signed up yet, or to someone already signed in.
+  // Otherwise anyone who can reach the network could enrol themselves.
+  const caller = auth.verifyToken(bearer(req));
+  if (auth.isBootstrapped && !caller) {
+    return sendJSON(res, 403, { error: 'Ask an existing user to create your account.' });
+  }
+
+  try {
+    const user = auth.register(payload);
+    // Sign the first user straight in; making them log in immediately after
+    // choosing a password is friction for no gain.
+    const session = auth.login({ username: payload.username, password: payload.password });
+    sendJSON(res, 201, { user, token: session.token });
+  } catch (err) {
+    sendJSON(res, err.status || 400, { error: err.message });
+  }
+}
+
+async function handleLogin(req, res) {
+  const payload = await readJSON(req, res);
+  if (!payload) return;
+  try {
+    sendJSON(res, 200, auth.login(payload));
+  } catch (err) {
+    sendJSON(res, err.status || 401, { error: err.message });
+  }
+}
+
+function handleMe(req, res) {
+  const username = auth.verifyToken(bearer(req));
+  if (!username) return sendJSON(res, 401, { error: 'Not signed in.', code: 'auth_required' });
+  sendJSON(res, 200, { user: auth.publicUser(username) });
 }
 
 // ── Request handler ───────────────────────────────────────────────────────────
@@ -392,12 +497,31 @@ async function handler(req, res) {
         basePath: BASE_PATH,
         secure: !!req.socket.encrypted,
         engines: { sarvam: !!STT.sarvam.key, groq: !!STT.groq.key },
+        auth: { required: auth.isBootstrapped, users: auth.userCount },
       });
     }
 
-    if (req.method === 'POST' && pathname === '/save')             return await handleSave(req, res);
-    if (req.method === 'POST' && pathname === '/api/stt')          return await handleSTT(req, res);
-    if (req.method === 'POST' && pathname === '/api/session-log')  return await handleSessionLog(req, res);
+    if (req.method === 'POST' && pathname === '/api/auth/register') return await handleRegister(req, res);
+    if (req.method === 'POST' && pathname === '/api/auth/login')    return await handleLogin(req, res);
+    if (req.method === 'GET'  && pathname === '/api/auth/me')       return handleMe(req, res);
+
+    // Everything below writes to the archive or spends an API budget, so it
+    // runs as a known user once accounts exist.
+    if (req.method === 'POST' && pathname === '/save') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return await handleSave(req, res, who.user);
+    }
+    if (req.method === 'POST' && pathname === '/api/stt') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return await handleSTT(req, res);
+    }
+    if (req.method === 'POST' && pathname === '/api/session-log') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return await handleSessionLog(req, res, who.user);
+    }
 
     if (req.method === 'GET' && serveStatic(res, pathname)) return;
 
@@ -429,6 +553,7 @@ server.listen(PORT, '0.0.0.0', () => {
   }
   console.log(`  Dataset     : ${BASE_PATH}`);
   console.log(`  STT engines : ${engines.length ? engines.join(', ') : 'none configured (transcribe manually)'}`);
+  console.log(`  Accounts    : ${auth.userCount === 0 ? 'none yet — the first sign-up becomes the first user' : `${auth.userCount} registered (sign-in required)`}`);
   console.log('');
   if (!haveCerts) {
     console.log('  NOTE: running over plain HTTP. Phones will refuse microphone');

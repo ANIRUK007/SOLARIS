@@ -83,7 +83,7 @@
 
     async available() {
       try {
-        const r = await fetch(url('/health'), { method: 'GET', cache: 'no-store' });
+        const r = await send(url('/health'), { method: 'GET', cache: 'no-store' });
         if (!r.ok) return false;
         const j = await r.json();
         return j.status === 'ok';
@@ -123,7 +123,7 @@
         fd.append('metadata', new Blob([JSON.stringify(record.meta, null, 2)], { type: 'application/json' }), 'session.json');
       }
 
-      const r = await fetch(url('/save'), { method: 'POST', body: fd });
+      const r = await send(url('/save'), { method: 'POST', body: fd });
       const raw = await r.text();
       if (!r.ok) throw new Error(`Server returned ${r.status}: ${raw.slice(0, 200)}`);
 
@@ -159,6 +159,11 @@
     return (baseUrl || '') + p;
   }
 
+  /** Saves must carry the signed-in user's token; auth.js owns that header. */
+  function send(input, init) {
+    return root.SolarisAuth ? root.SolarisAuth.fetch(input, init) : fetch(input, init);
+  }
+
   // ── Public API ──────────────────────────────────────────────────────────────
   /**
    * Persist one session. Falls back to the offline queue if the backend is
@@ -187,7 +192,11 @@
   }
 
   function isPermanent(err) {
-    return /Server returned 4\d\d/.test(err.message || '');
+    const msg = err.message || '';
+    // 401 is not permanent — it means "sign in again", and the record should
+    // wait in the queue rather than being thrown away.
+    if (/Server returned 401/.test(msg)) return false;
+    return /Server returned 4\d\d/.test(msg);
   }
 
   async function queueRecord(record) {

@@ -783,8 +783,35 @@
   }
 
   // ── Wiring ──────────────────────────────────────────────────────────────────
+  /** Show who is signed in, and offer the way in when nobody is. */
+  async function paintUser() {
+    const pill = $('userPill');
+    if (!pill) return;
+
+    await SolarisAuth.refresh();
+    const user = SolarisAuth.user;
+
+    if (user) {
+      pill.hidden = false;
+      pill.textContent = `${user.displayName || user.username} · Lv ${user.level}`;
+      pill.title = 'Signed in';
+      return;
+    }
+
+    if (await SolarisAuth.serverRequiresAuth()) {
+      pill.hidden = false;
+      pill.textContent = 'Sign in';
+      pill.style.cursor = 'pointer';
+      pill.onclick = () => { location.href = 'play.html'; };
+    } else {
+      pill.hidden = true;
+    }
+  }
+
   function init() {
     SolarisStore.configure({ baseUrl: CONFIG.serverUrl });
+    SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
+    paintUser();
 
     // Read-only handle on the capture state. A phone in the field has no
     // devtools worth using, so being able to ask a remote operator to read

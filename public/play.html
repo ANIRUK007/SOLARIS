@@ -18,6 +18,43 @@
 </head>
 <body>
 
+<!-- ══ SIGN IN ════════════════════════════════════════════════════════════ -->
+<section class="screen" id="screen-auth" hidden>
+  <div class="center-col">
+    <div class="brand">
+      <div class="brand-ring"><div class="brand-dot"></div></div>
+      <h1>SOLARIS</h1>
+    </div>
+
+    <p class="lede" id="authLede">Sign in to record.</p>
+
+    <div class="field-group">
+      <label for="auth-user">Username</label>
+      <input id="auth-user" type="text" maxlength="32" autocomplete="username"
+             autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="fieldworker" />
+    </div>
+
+    <div class="field-group">
+      <label for="auth-pass">Password</label>
+      <input id="auth-pass" type="password" autocomplete="current-password"
+             enterkeyhint="go" placeholder="••••••••" />
+    </div>
+
+    <div class="field-group" id="authNameRow" hidden>
+      <label for="auth-name">Display name</label>
+      <input id="auth-name" type="text" maxlength="60" autocomplete="name"
+             enterkeyhint="go" placeholder="Your name" />
+    </div>
+
+    <div class="err-box" id="authErr" hidden></div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="btnAuthSubmit" type="button">Sign In</button>
+    <button class="btn btn-ghost" id="btnAuthToggle" type="button">Create an account instead</button>
+  </div>
+</section>
+
 <!-- ══ SETUP ══════════════════════════════════════════════════════════════ -->
 <section class="screen" id="screen-setup">
   <div class="center-col">
@@ -31,6 +68,15 @@
     </p>
 
     <span class="srv-state checking" id="srvState"><span class="dot"></span><span id="srvLbl">checking…</span></span>
+
+    <div class="user-chip" id="userChip" hidden>
+      <span class="user-av" id="userAvatar">?</span>
+      <span class="user-meta">
+        <span class="user-name" id="userName">—</span>
+        <span class="user-lvl" id="userLevel">Level 1</span>
+      </span>
+      <button class="user-out" id="btnSignOut" type="button">Sign out</button>
+    </div>
 
     <div class="field-group">
       <label for="setup-speaker">Speaker ID</label>
@@ -61,7 +107,10 @@
 
   <div class="actions">
     <button class="btn btn-primary" id="btnStart" type="button">Start Session</button>
-    <div class="link-row"><a href="index.html">Open the full capture interface</a></div>
+    <div class="link-row">
+      <button class="text-link" id="btnGoAuth" type="button" hidden>Sign in / Create account</button>
+      <a href="index.html">Full capture interface</a>
+    </div>
   </div>
 </section>
 
@@ -147,6 +196,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="auth.js"></script>
 <script src="dsp.js"></script>
 <script src="store.js"></script>
 <script src="play.js"></script>

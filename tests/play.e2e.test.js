@@ -50,6 +50,7 @@ const walk = (dir) => fs.existsSync(dir)
       PORT: String(PORT),
       SOLARIS_DATASET_DIR: DATASET,
       SARVAM_API_KEY: '', GROQ_API_KEY: '',
+      SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
       SSL_CERT: path.join(DATASET, 'none'), SSL_KEY: path.join(DATASET, 'none'),
     },
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -102,6 +103,48 @@ const walk = (dir) => fs.existsSync(dir)
       `content overflows by ${setupFits.over}px in ${setupFits.h}px`);
 
     await page.screenshot({ path: path.join(SHOTS, 'play-01-setup.png') });
+
+    // ── Sign up through the interface ────────────────────────────────────────
+    // No account exists yet, so the tools are usable and the sign-up is
+    // offered rather than forced.
+    check('the sign-in route is offered on first run',
+      await page.isVisible('#btnGoAuth'));
+
+    await page.click('#btnGoAuth');
+    await page.waitForSelector('#screen-auth:not([hidden])');
+
+    check('the sign-up form is shown, not the sign-in form',
+      (await page.textContent('#btnAuthSubmit')).includes('Create'),
+      await page.textContent('#btnAuthSubmit'));
+
+    await page.screenshot({ path: path.join(SHOTS, 'play-00-auth.png') });
+
+    // A weak password must be refused by the server, with the reason shown.
+    await page.fill('#auth-user', 'fieldworker');
+    await page.fill('#auth-pass', 'short');
+    await page.click('#btnAuthSubmit');
+    await page.waitForFunction(() => !document.querySelector('#authErr').hidden, null, { timeout: 10000 });
+    check('a weak password is rejected with a readable reason',
+      /8 characters/i.test(await page.textContent('#authErr')),
+      await page.textContent('#authErr'));
+
+    // The rejection above is a deliberate 400, which the browser logs as a
+    // failed resource load. Drop exactly that one so it cannot mask a real
+    // error later.
+    const expected = errors.filter(e => /400/.test(e) && /Failed to load resource/.test(e));
+    for (const e of expected) errors.splice(errors.indexOf(e), 1);
+
+    await page.fill('#auth-pass', 'fieldpass2024');
+    await page.fill('#auth-name', 'Field Worker');
+    await page.click('#btnAuthSubmit');
+    await page.waitForSelector('#screen-setup:not([hidden])', { timeout: 15000 });
+
+    check('creating an account signs the user straight in',
+      await page.isVisible('#userChip'));
+    check('the user chip shows the display name and level',
+      (await page.textContent('#userName')).includes('Field Worker') &&
+      /Level \d/.test(await page.textContent('#userLevel')),
+      `${await page.textContent('#userName')} / ${await page.textContent('#userLevel')}`);
 
     // ── Start ────────────────────────────────────────────────────────────────
     await page.fill('#setup-speaker', 'SPK042');
@@ -244,6 +287,11 @@ const walk = (dir) => fs.existsSync(dir)
     check('the transcript holds the Telugu prompt, with no speech-to-text involved',
       txt && fs.readFileSync(txt, 'utf8').trim() === promptWord.trim(),
       txt ? `"${fs.readFileSync(txt, 'utf8')}" vs prompt "${promptWord}"` : 'no transcript written');
+
+    const meta = walk(DATASET).find(f => f.endsWith('session.json'));
+    check('the saved session records who was signed in',
+      meta && JSON.parse(fs.readFileSync(meta, 'utf8')).recordedBy === 'fieldworker',
+      meta ? JSON.stringify(JSON.parse(fs.readFileSync(meta, 'utf8')).recordedBy) : 'no session.json');
 
     const logPath = walk(DATASET).find(f => f.endsWith('_log.json'));
     check('a session log was written', !!logPath, files.join(', '));

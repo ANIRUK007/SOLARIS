@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/dsp.test.js && node tests/wiring.test.js && node tests/server.test.js",
+    "test": "node tests/dsp.test.js && node tests/wiring.test.js && node tests/auth.test.js && node tests/server.test.js",
     "certs": "node scripts/make-certs.js",
     "test:e2e": "node tests/e2e.test.js && node tests/play.e2e.test.js"
   },

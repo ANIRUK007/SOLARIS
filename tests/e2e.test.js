@@ -66,6 +66,7 @@ async function waitForServer(ms) {
       SOLARIS_DATASET_DIR: DATASET,
       SARVAM_API_KEY: '',
       GROQ_API_KEY: '',
+      SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
       SSL_CERT: path.join(DATASET, 'none'),
       SSL_KEY: path.join(DATASET, 'none'),
     },

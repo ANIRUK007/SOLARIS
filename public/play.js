@@ -88,7 +88,7 @@
 
   // ── Screens ─────────────────────────────────────────────────────────────────
   function show(screen) {
-    ['setup', 'play', 'done'].forEach(s => { $('screen-' + s).hidden = s !== screen; });
+    ['auth', 'setup', 'play', 'done'].forEach(s => { $('screen-' + s).hidden = s !== screen; });
   }
 
   function hideToast() {
@@ -103,6 +103,103 @@
     el.classList.add('show');
     clearTimeout(el._t);
     el._t = setTimeout(() => el.classList.remove('show'), ms || 2200);
+  }
+
+  // ── Sign in ─────────────────────────────────────────────────────────────────
+  let authMode = 'login';          // or 'register'
+
+  function paintAuthMode() {
+    const registering = authMode === 'register';
+    $('authLede').textContent = registering
+      ? 'Create an account to record.'
+      : 'Sign in to record.';
+    $('btnAuthSubmit').textContent = registering ? 'Create Account' : 'Sign In';
+    $('btnAuthToggle').textContent = registering ? 'I already have an account' : 'Create an account instead';
+    $('authNameRow').hidden = !registering;
+    $('auth-pass').setAttribute('autocomplete', registering ? 'new-password' : 'current-password');
+    clearError('authErr');
+  }
+
+  async function submitAuth() {
+    clearError('authErr');
+    const username = $('auth-user').value.trim();
+    const password = $('auth-pass').value;
+
+    if (!username || !password) {
+      showError('authErr', 'Enter a username and password.');
+      return;
+    }
+
+    const btn = $('btnAuthSubmit');
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+
+    try {
+      if (authMode === 'register') {
+        await SolarisAuth.register(username, password, $('auth-name').value.trim() || username);
+      } else {
+        await SolarisAuth.login(username, password);
+      }
+      $('auth-pass').value = '';
+      paintUser();
+      show('setup');
+    } catch (err) {
+      showError('authErr', err.message);
+    } finally {
+      btn.disabled = false;
+      // Only restore the label. Calling paintAuthMode() here would clear the
+      // error that was just shown, leaving a failed sign-in looking like
+      // nothing happened at all.
+      btn.textContent = authMode === 'register' ? 'Create Account' : 'Sign In';
+    }
+  }
+
+  function paintUser() {
+    const user = SolarisAuth.user;
+    const chip = $('userChip');
+    const goAuth = $('btnGoAuth');
+
+    // Before the first account exists the tools still work, so the way to
+    // sign up has to be reachable from setup rather than only from a gate.
+    if (goAuth) goAuth.hidden = !!user;
+
+    if (!user) { chip.hidden = true; return; }
+
+    chip.hidden = false;
+    $('userAvatar').textContent = (user.displayName || user.username).trim().charAt(0) || '?';
+    $('userName').textContent = user.displayName || user.username;
+    $('userLevel').textContent = `Level ${user.level} · ${user.stats.xp} XP`;
+  }
+
+  function signOut() {
+    SolarisAuth.logout();
+    paintUser();
+    decideStartScreen();
+  }
+
+  /**
+   * Where to land on open. Before anybody has registered the server is still
+   * being set up, so the tools stay usable and the sign-up is offered rather
+   * than forced.
+   */
+  async function decideStartScreen() {
+    const required = await SolarisAuth.serverRequiresAuth();
+
+    if (SolarisAuth.isSignedIn) {
+      await SolarisAuth.refresh();
+      paintUser();
+      if (SolarisAuth.isSignedIn) { show('setup'); return; }
+    }
+
+    if (required) {
+      authMode = 'login';
+      paintAuthMode();
+      show('auth');
+    } else {
+      authMode = 'register';
+      paintAuthMode();
+      show('setup');           // first run: recording works, account optional
+    }
   }
 
   // ── Setup ───────────────────────────────────────────────────────────────────
@@ -631,6 +728,9 @@
         scores: { banjara: bnj.grade.score, telugu: tel ? tel.grade.score : null },
         filter: SolarisDSP.DEFAULTS,
         client: navigator.userAgent,
+        // Claimed here for convenience; the server stamps the authoritative
+        // value from the token.
+        recordedBy: SolarisAuth.user ? SolarisAuth.user.username : null,
       },
     };
 
@@ -737,11 +837,19 @@
     };
 
     try {
-      await fetch(CONFIG.serverUrl + '/api/session-log', {
+      const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/session-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      // The server folds this session into the account's lifetime totals and
+      // hands back the updated profile, so the level shown stays truthful.
+      const data = await r.json().catch(() => ({}));
+      if (data && data.profile) {
+        SolarisAuth.updateUser(data.profile);
+        paintUser();
+        $('doneSub').textContent += ` Level ${data.profile.level} · ${data.profile.stats.xp} XP total.`;
+      }
     } catch {
       // The per-word saves already carry the important data; the log is extra.
     }
@@ -787,6 +895,19 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); }
     });
 
+    $('btnAuthSubmit').addEventListener('click', submitAuth);
+    $('btnAuthToggle').addEventListener('click', () => {
+      authMode = authMode === 'login' ? 'register' : 'login';
+      paintAuthMode();
+    });
+    $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+    $('btnSignOut').addEventListener('click', signOut);
+    $('btnGoAuth').addEventListener('click', () => {
+      authMode = SolarisAuth.isSignedIn ? 'login' : 'register';
+      paintAuthMode();
+      show('auth');
+    });
+
     $('btnStart').addEventListener('click', startSession);
     $('btnRecord').addEventListener('click', toggleRecord);
     $('btnSkip').addEventListener('click', skipWord);
@@ -821,9 +942,11 @@
     // Read-only handle for diagnosing a session from a phone with no devtools.
     window.__solarisGame = G;
 
+    SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
     loadPacks();
     checkServer();
-    show('setup');
+    paintUser();
+    decideStartScreen();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -1,58 +1,63 @@
 /* theme.css — the shared design system for SOLARIS.
  *
- * The palette is drawn from Lambadi/Banjara textile work: an indigo ground,
- * crimson and marigold embroidery, and the small mirrors (abhla) stitched
- * into the cloth. That is the language the archive is collecting, so the
- * interface reads as belonging to it rather than to a generic dashboard.
+ * Arcade palette: a deep violet-black ground with fully saturated action
+ * colours on top — hot pink, gold, lime, cyan. Buttons carry a gradient
+ * face, a hard shadow for depth, and a coloured glow, which is what makes
+ * a control read as a game control rather than a form field.
  *
- * Contrast is deliberately pushed hard. Recording happens outdoors, and a
- * dark screen in daylight loses whatever contrast it did not start with —
- * body text is ivory on indigo (about 13:1), and mid-grey text is not used
- * for anything a speaker has to read.
+ * The rule that keeps it from turning into noise: the background is almost
+ * colourless, every saturated colour means something (pink records, lime
+ * confirms, gold rewards, cyan informs), and text stays near-white. That
+ * also keeps contrast high enough to survive being read outdoors.
  *
  * Every colour and shape primitive lives here; the two page stylesheets
  * consume these tokens and add layout only.
  */
 
 :root {
-  /* ── Ground: indigo, from darkest to card surfaces ───────────────────────── */
-  --ink:        #120a2a;   /* deepest, page background          */
-  --indigo:     #1a1038;   /* primary surface                   */
-  --indigo-2:   #241551;   /* raised card                       */
-  --indigo-3:   #2f1d68;   /* hover / active surface            */
-  --indigo-ink: #0d0620;   /* insets, inputs, wells             */
+  /* ── Ground ──────────────────────────────────────────────────────────────── */
+  --bg-0:      #0b0420;   /* page background, near-black violet */
+  --bg-1:      #170a33;   /* raised surface                     */
+  --bg-2:      #241247;   /* card                               */
+  --bg-3:      #341c63;   /* hover, borders, active surface     */
+  --well:      #0a0320;   /* inputs and insets                  */
 
-  /* ── Embroidery threads ──────────────────────────────────────────────────── */
-  --crimson:    #e4322b;   /* primary action                    */
-  --crimson-d:  #9c1d18;   /* the pressed depth under it        */
-  --marigold:   #ffc24d;   /* accent, highlights, streak        */
-  --marigold-d: #c68a17;
-  --leaf:       #34c77b;   /* success                           */
-  --leaf-d:     #1f8a52;
-  --rose:       #ff6f91;   /* secondary accent                  */
-  --sky:        #5cc8ff;   /* informational                     */
+  /* ── Action colours ──────────────────────────────────────────────────────── */
+  --hot:       #ff2e63;   /* record, primary emphasis           */
+  --hot-2:     #ff5c7c;   /* the light end of its gradient      */
+  --hot-d:     #b30d3c;   /* hard shadow beneath it             */
 
-  /* ── Mirror work ─────────────────────────────────────────────────────────── */
-  --mirror:     #dfe6f2;   /* the bright rim of a stitched mirror */
-  --mirror-dim: rgba(223, 230, 242, .22);
+  --lime:      #2be86b;   /* success, confirm, continue         */
+  --lime-2:    #5cff97;
+  --lime-d:    #12a244;
 
-  /* ── Type ────────────────────────────────────────────────────────────────── */
-  --ivory:   #fff3e0;      /* primary text                      */
-  --ivory-2: #d9c9b8;      /* secondary text, still high contrast */
-  --ivory-3: #9b8aa8;      /* de-emphasised only; never for prose a speaker reads */
+  --gold:      #ffc93c;   /* rewards, streaks, highlights       */
+  --gold-2:    #ffe08a;
+  --gold-d:    #c28a00;
+
+  --cyan:      #22d3ee;   /* informational                      */
+  --cyan-d:    #0e7f92;
+
+  --violet:    #a855f7;   /* secondary accent                   */
+  --violet-d:  #6d28d9;
+
+  /* ── Text ────────────────────────────────────────────────────────────────── */
+  --text:      #ffffff;
+  --text-2:    #d6c9f5;   /* secondary, still high contrast     */
+  --text-3:    #8c7ab8;   /* de-emphasised only                 */
 
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
 
-  /* ── Shape: chunky and forgiving ─────────────────────────────────────────── */
-  --r-sm: 10px;
-  --r:    16px;
-  --r-lg: 22px;
-  --r-xl: 28px;
+  /* ── Shape ───────────────────────────────────────────────────────────────── */
+  --r-sm: 12px;
+  --r:    18px;
+  --r-lg: 24px;
+  --r-xl: 30px;
 
-  --bd:    2px;            /* standard border                   */
-  --bd-hi: 3px;            /* emphasised border                 */
-  --press: 5px;            /* button depth; collapses when held */
+  --bd:    2px;
+  --bd-hi: 3px;
+  --press: 6px;           /* button depth; collapses when pressed */
 
   /* ── Safe areas ──────────────────────────────────────────────────────────── */
   --safe-t: env(safe-area-inset-top, 0px);
@@ -60,81 +65,68 @@
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
 
-  --tap: 52px;             /* minimum touch target              */
-}
-
-/* ── Mirror-work motif ──────────────────────────────────────────────────────
-   A row of small bright circles, the way abhla mirrors are stitched along a
-   seam. Used as a decorative rule on cards and headers. */
-.mirror-rule {
-  height: 10px;
-  background-image: radial-gradient(circle at center, var(--mirror) 0 2.5px, transparent 3px);
-  background-size: 16px 10px;
-  background-repeat: repeat-x;
-  background-position: center;
-  opacity: .5;
-}
-
-/* A single mirror: bright rim, dark centre, the way it catches light. */
-.mirror-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffffff 0 18%, var(--mirror) 30%, #7d8ba3 60%, var(--indigo-ink) 100%);
-  box-shadow: 0 0 0 2px var(--mirror-dim);
-  flex-shrink: 0;
+  --tap: 52px;
 }
 
 /* ── Chunky pressable button ────────────────────────────────────────────────
-   The bottom shadow is the button's depth. Pressing collapses it and moves
-   the face down by the same amount, which reads as a physical push — and it
-   forgives an imprecise tap, which matters for a first-time smartphone user. */
+   Gradient face, hard shadow for depth, coloured glow. Pressing collapses
+   the shadow and drops the face, which reads as a physical push and forgives
+   an imprecise tap. */
 .btn {
-  --btn-face: var(--crimson);
-  --btn-deep: var(--crimson-d);
-  --btn-text: #ffffff;
+  --face-1: var(--hot-2);
+  --face-2: var(--hot);
+  --deep:   var(--hot-d);
+  --glow:   rgba(255, 46, 99, .45);
+  --on:     #ffffff;
 
   width: 100%;
-  min-height: 60px;
+  min-height: 62px;
   padding: 16px 20px;
   border: none;
   border-radius: var(--r);
-  background: var(--btn-face);
-  color: var(--btn-text);
-  box-shadow: 0 var(--press) 0 var(--btn-deep);
+  background: linear-gradient(180deg, var(--face-1), var(--face-2));
+  color: var(--on);
+  box-shadow: 0 var(--press) 0 var(--deep), 0 10px 26px -8px var(--glow);
   font-family: var(--sans);
   font-size: 16px;
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .18);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   touch-action: manipulation;
-  transition: transform .06s ease, box-shadow .06s ease, filter .15s;
+  transition: transform .07s ease, box-shadow .07s ease, filter .15s;
 }
 .btn:active:not(:disabled) {
   transform: translateY(var(--press));
-  box-shadow: 0 0 0 var(--btn-deep);
+  box-shadow: 0 0 0 var(--deep), 0 4px 14px -6px var(--glow);
 }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: 0 var(--press) 0 var(--deep); }
 
-.btn-primary { --btn-face: var(--leaf);     --btn-deep: var(--leaf-d);     --btn-text: #04240f; }
-.btn-record  { --btn-face: var(--crimson);  --btn-deep: var(--crimson-d);  --btn-text: #ffffff; }
-.btn-accent  { --btn-face: var(--marigold); --btn-deep: var(--marigold-d); --btn-text: #2b1a02; }
+.btn-primary { --face-1: var(--lime-2);   --face-2: var(--lime);   --deep: var(--lime-d);   --glow: rgba(43, 232, 107, .45); --on: #04240f; }
+.btn-record  { --face-1: var(--hot-2);    --face-2: var(--hot);    --deep: var(--hot-d);    --glow: rgba(255, 46, 99, .45);  --on: #ffffff; }
+.btn-accent  { --face-1: var(--gold-2);   --face-2: var(--gold);   --deep: var(--gold-d);   --glow: rgba(255, 201, 60, .45); --on: #2b1a02; }
+.btn-info    { --face-1: #67e8f9;         --face-2: var(--cyan);   --deep: var(--cyan-d);   --glow: rgba(34, 211, 238, .4);  --on: #032b32; }
 
-/* Outline variant keeps the same footprint so rows stay aligned. */
+/* Outline variant keeps the same footprint so button rows stay aligned. */
 .btn-ghost {
-  background: transparent;
-  color: var(--ivory-2);
-  border: var(--bd) solid var(--indigo-3);
+  background: rgba(255, 255, 255, .04);
+  color: var(--text-2);
+  border: var(--bd) solid var(--bg-3);
   box-shadow: none;
+  text-shadow: none;
   font-size: 14px;
   min-height: var(--tap);
 }
-.btn-ghost:active:not(:disabled) { transform: translateY(2px); background: rgba(255, 255, 255, .05); }
+.btn-ghost:active:not(:disabled) {
+  transform: translateY(2px);
+  background: rgba(255, 255, 255, .09);
+  box-shadow: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
