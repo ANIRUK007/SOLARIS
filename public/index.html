@@ -58,7 +58,7 @@
 </section>
 
 <!-- ══ PORTAL ═════════════════════════════════════════════════════════════ -->
-<section class="screen scrolls" id="screen-portal" hidden>
+<section class="screen" id="screen-portal" hidden>
   <header class="appbar">
     <button class="avatar" id="btnProfile" type="button" aria-label="Your profile" aria-haspopup="dialog">
       <span id="userAvatar">?</span>
@@ -73,23 +73,40 @@
     </div>
   </header>
 
-  <div class="portal-body">
-    <!-- Whatever the contributor should do next, decided for them -->
-    <button class="hero" id="heroCard" type="button" hidden>
-      <span class="hero-label" id="heroLabel">Start here</span>
-      <span class="hero-name" id="heroName">—</span>
-      <span class="hero-meta">
-        <span class="hero-track"><span class="hero-fill" id="heroFill"></span></span>
-        <span class="hero-count" id="heroCount">0/0</span>
-      </span>
-      <span class="hero-go" id="heroGo"></span>
-    </button>
+  <!-- The set being worked through, and how far along it is. Sticky, so it
+       stays answerable while scrolling the path. -->
+  <button class="unit" id="unitBanner" type="button" aria-haspopup="dialog">
+    <span class="unit-icon" id="unitIcon"></span>
+    <span class="unit-text">
+      <span class="unit-label">Word set</span>
+      <span class="unit-name" id="unitName">—</span>
+    </span>
+    <span class="unit-count" id="unitCount">0/0</span>
+    <span class="unit-switch" id="unitSwitch"></span>
+  </button>
 
-    <h2 class="section-title">All word sets</h2>
-    <div class="pack-grid" id="packGrid"></div>
+  <div class="portal-body scrolls">
+    <!-- One node per batch of ten words. Tapping the live one starts recording. -->
+    <div class="path" id="path"></div>
     <div class="queue-note" id="portalQueue" hidden></div>
   </div>
+
+  <nav class="tabbar">
+    <button class="tab is-on" id="tabLearn" type="button"><span id="tabLearnIcon"></span>Learn</button>
+    <button class="tab" id="tabSets" type="button"><span id="tabSetsIcon"></span>Sets</button>
+    <button class="tab" id="tabYou" type="button"><span id="tabYouIcon"></span>You</button>
+  </nav>
 </section>
+
+<!-- The full list of sets, on request rather than on the home screen -->
+<div class="scrim" id="setsScrim" hidden></div>
+<aside class="sheet-panel" id="setsPanel" role="dialog" aria-modal="true" aria-label="Word sets" hidden>
+  <div class="panel-head">
+    <h2>Word sets</h2>
+    <button class="icon-btn" id="btnCloseSets" type="button" aria-label="Close"></button>
+  </div>
+  <div class="panel-body" id="packGrid"></div>
+</aside>
 
 <!-- ══ SESSION ════════════════════════════════════════════════════════════ -->
 <section class="screen" id="screen-play" hidden>

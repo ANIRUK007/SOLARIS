@@ -33,8 +33,8 @@ body::before {
   inset: 0;
   background:
     radial-gradient(80% 44% at 50% -10%, rgba(255, 46, 99, .32), transparent 70%),
-    radial-gradient(70% 40% at 12% 108%, rgba(168, 85, 247, .28), transparent 70%),
-    radial-gradient(70% 40% at 88% 104%, rgba(34, 211, 238, .2), transparent 70%),
+    radial-gradient(70% 40% at 12% 108%, rgba(255, 201, 60, .28), transparent 70%),
+    radial-gradient(70% 40% at 88% 104%, rgba(255, 201, 60, .2), transparent 70%),
     linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 62%);
   pointer-events: none;
   z-index: 0;
@@ -155,8 +155,8 @@ body::after {
 #screen-play[data-accent='hot']    { --set: var(--hot);    --set-soft: rgba(255, 46, 99, .3); }
 #screen-play[data-accent='lime']   { --set: var(--lime);   --set-soft: rgba(43, 232, 107, .3); }
 #screen-play[data-accent='gold']   { --set: var(--gold);   --set-soft: rgba(255, 201, 60, .3); }
-#screen-play[data-accent='cyan']   { --set: var(--cyan);   --set-soft: rgba(34, 211, 238, .3); }
-#screen-play[data-accent='violet'] { --set: var(--violet); --set-soft: rgba(168, 85, 247, .35); }
+#screen-play[data-accent='cyan']   { --set: var(--gold);   --set-soft: rgba(255, 201, 60, .3); }
+#screen-play[data-accent='violet'] { --set: var(--gold); --set-soft: rgba(255, 201, 60, .35); }
 
 .prompt-head {
   display: flex;
@@ -176,14 +176,14 @@ body::after {
 /* The prompt panel. */
 .prompt-card {
   background: linear-gradient(165deg, #2e1a5c, var(--bg-2) 60%, #1d0f3f);
-  border: var(--bd-hi) solid var(--set-soft, rgba(168, 85, 247, .45));
+  border: var(--bd-hi) solid var(--set-soft, rgba(255, 201, 60, .45));
   border-radius: var(--r-xl);
   padding: 22px 20px 26px;
   text-align: center;
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 20px 50px -24px var(--set-soft, rgba(168, 85, 247, .55)),
+    0 20px 50px -24px var(--set-soft, rgba(255, 201, 60, .55)),
     inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 /* A bright sheen across the top edge, like light on a glossy panel. */
@@ -200,7 +200,7 @@ body::after {
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 4px;
-  background: linear-gradient(90deg, transparent, var(--set, var(--violet)), transparent);
+  background: linear-gradient(90deg, transparent, var(--set, var(--gold)), transparent);
 }
 .prompt-card.enter { animation: cardIn .4s cubic-bezier(.22, 1, .36, 1); }
 @keyframes cardIn {
@@ -219,9 +219,9 @@ body::after {
   font-weight: 600;
   letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--set, var(--violet));
-  background: color-mix(in srgb, var(--set, var(--violet)) 18%, transparent);
-  border: var(--bd) solid color-mix(in srgb, var(--set, var(--violet)) 55%, transparent);
+  color: var(--set, var(--gold));
+  background: color-mix(in srgb, var(--set, var(--gold)) 18%, transparent);
+  border: var(--bd) solid color-mix(in srgb, var(--set, var(--gold)) 55%, transparent);
   border-radius: 99px;
   padding: 6px 13px;
   max-width: 62%;
@@ -239,7 +239,7 @@ body::after {
   color: #ffffff;
   word-break: break-word;
   margin-bottom: 12px;
-  text-shadow: 0 0 30px var(--set-soft, rgba(168, 85, 247, .55)), 0 2px 0 rgba(0, 0, 0, .3);
+  text-shadow: 0 0 30px var(--set-soft, rgba(255, 201, 60, .55)), 0 2px 0 rgba(0, 0, 0, .3);
 }
 .word-translit {
   font-family: var(--mono);
@@ -266,7 +266,7 @@ body::after {
   cursor: pointer;
   transition: background .15s, transform .08s;
 }
-.speak-btn:active { transform: scale(.95); background: rgba(34, 211, 238, .2); }
+.speak-btn:active { transform: scale(.95); background: rgba(255, 201, 60, .2); }
 .speak-btn[hidden] { display: none; }
 
 /* ── LEVEL METER ───────────────────────────────────────────────────────────── */
@@ -338,7 +338,7 @@ body::after {
 
 .sheet.good { background: #0f2e1d; border-top-color: var(--lime); }
 .sheet.bad  { background: #3a0f10; border-top-color: var(--hot); }
-.sheet.info { background: var(--bg-2); border-top-color: var(--cyan); }
+.sheet.info { background: var(--bg-2); border-top-color: var(--gold); }
 
 .sheet-head { display: flex; align-items: center; gap: 13px; }
 .sheet-icon {
@@ -353,12 +353,12 @@ body::after {
 }
 .sheet.good .sheet-icon { background: rgba(43, 232, 107, .16); color: var(--lime); }
 .sheet.bad  .sheet-icon { background: rgba(255, 46, 99, .16);  color: var(--hot); }
-.sheet.info .sheet-icon { background: rgba(34, 211, 238, .16); color: var(--cyan); }
+.sheet.info .sheet-icon { background: rgba(255, 201, 60, .16); color: var(--gold); }
 
 .sheet-title { font-size: 23px; font-weight: 800; letter-spacing: -.01em; }
 .sheet.good .sheet-title { color: var(--lime); }
 .sheet.bad  .sheet-title { color: #ff7d9e; }
-.sheet.info .sheet-title { color: var(--cyan); }
+.sheet.info .sheet-title { color: var(--gold); }
 .sheet-sub { font-size: 14px; color: var(--text-2); margin-top: 3px; line-height: 1.45; }
 
 .xp-badge {
@@ -578,11 +578,11 @@ body::after {
 .stat.xp     { color: var(--gold); }
 .stat.acc    { color: var(--lime); }
 .stat.streak { color: var(--hot); }
-.stat.time   { color: var(--cyan); }
+.stat.time   { color: var(--gold); }
 .stat.xp .v     { color: var(--gold); }
 .stat.acc .v    { color: var(--lime); }
 .stat.streak .v { color: #ff7d9e; }
-.stat.time .v   { color: var(--cyan); }
+.stat.time .v   { color: var(--gold); }
 
 .queue-note {
   font-family: var(--mono);
@@ -746,7 +746,15 @@ body::after {
 }
 .streak-pill.cold .flame { filter: grayscale(1); opacity: .5; }
 
-.portal-body { display: flex; flex-direction: column; gap: 16px; padding-bottom: 28px; }
+.portal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 10px;
+}
+.portal-body.scrolls { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 .card {
   background: linear-gradient(165deg, #2a1552, var(--bg-2));
@@ -818,9 +826,13 @@ body::after {
   .pack-grid { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
-/* One row per set: a coloured tile, the name with its count, and a thin bar.
-   The long descriptions are gone — six paragraphs stacked up read as a wall
-   of text, and the name plus the count is the decision being made. */
+/* One row per set.
+ *
+ * The tile used to be one of five colours per category, which taught nothing:
+ * a colour only means something if you can remember what it means, and nobody
+ * remembers fifteen. Colour now reports state — untouched is grey, started is
+ * gold, finished is lime — so a glance down the list answers the only question
+ * being asked of it. */
 .pack {
   display: flex;
   align-items: center;
@@ -845,15 +857,27 @@ body::after {
   display: grid;
   place-items: center;
   font-size: 25px;
-  background: var(--accent-soft, rgba(255, 201, 60, .16));
-  border: var(--bd) solid var(--accent-line, rgba(255, 201, 60, .4));
+  background: rgba(255, 255, 255, .05);
+  border: var(--bd) solid var(--bg-3);
+  color: var(--text-3);
+  transition: color .2s, border-color .2s, background .2s;
 }
 
-.pack.accent-hot    { --accent: var(--hot);    --accent-soft: rgba(255, 46, 99, .16);  --accent-line: rgba(255, 46, 99, .45); }
-.pack.accent-lime   { --accent: var(--lime);   --accent-soft: rgba(43, 232, 107, .16); --accent-line: rgba(43, 232, 107, .45); }
-.pack.accent-gold   { --accent: var(--gold);   --accent-soft: rgba(255, 201, 60, .16); --accent-line: rgba(255, 201, 60, .45); }
-.pack.accent-cyan   { --accent: var(--cyan);   --accent-soft: rgba(34, 211, 238, .16); --accent-line: rgba(34, 211, 238, .45); }
-.pack.accent-violet { --accent: var(--violet); --accent-soft: rgba(168, 85, 247, .18); --accent-line: rgba(168, 85, 247, .5); }
+/* Started: gold, the colour of your own progress everywhere else. */
+.pack.started .pack-icon {
+  color: var(--gold);
+  border-color: rgba(255, 201, 60, .45);
+  background: rgba(255, 201, 60, .1);
+}
+.pack.started .pack-meta { color: var(--gold); }
+
+/* Finished: lime, the same green that accepts a take. */
+.pack.complete .pack-icon {
+  color: var(--lime);
+  border-color: rgba(43, 232, 107, .45);
+  background: rgba(43, 232, 107, .1);
+}
+
 
 .pack-body { flex: 1; min-width: 0; display: block; }
 .pack-top {
@@ -901,7 +925,6 @@ body::after {
 }
 
 /* A finished set steps back rather than shouting. */
-.pack.complete { border-color: var(--accent-line); background: rgba(43, 232, 107, .07); }
 .pack.complete .pack-meta,
 .pack.complete .pack-go { color: var(--lime); }
 
@@ -1106,14 +1129,14 @@ body::after {
   padding: 18px;
   border: none;
   border-radius: var(--r-lg);
-  background: linear-gradient(135deg, var(--violet), #6d28d9 55%, var(--bg-2));
-  color: #fff;
+  background: linear-gradient(135deg, var(--gold-2), var(--gold) 55%, #e0a516);
+  color: #2b1a02;
   cursor: pointer;
-  box-shadow: 0 6px 0 #4c1d95, 0 16px 34px -14px rgba(168, 85, 247, .8);
+  box-shadow: 0 6px 0 var(--gold-d), 0 16px 34px -14px rgba(255, 201, 60, .55);
   transition: transform .08s ease, box-shadow .08s ease;
   overflow: hidden;
 }
-.hero:active { transform: translateY(5px); box-shadow: 0 1px 0 #4c1d95, 0 8px 18px -12px rgba(168, 85, 247, .8); }
+.hero:active { transform: translateY(5px); box-shadow: 0 1px 0 #c28a00, 0 8px 18px -12px rgba(255, 201, 60, .8); }
 .hero[hidden] { display: none; }
 /* A sheen so the panel reads as raised rather than flat violet. */
 .hero::after {
@@ -1131,29 +1154,36 @@ body::after {
   font-weight: 700;
   letter-spacing: .16em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, .75);
+  color: rgba(43, 26, 2, .68);
 }
 .hero-name { grid-area: name; font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
 .hero-meta { grid-area: meta; display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.hero-track { flex: 1; height: 8px; background: rgba(0, 0, 0, .34); border-radius: 99px; overflow: hidden; }
+.hero-track { flex: 1; height: 8px; background: rgba(43, 26, 2, .28); border-radius: 99px; overflow: hidden; }
 .hero-fill {
   display: block;
   height: 100%;
   border-radius: 99px;
-  background: linear-gradient(90deg, var(--lime-2), var(--gold));
+  background: #2b1a02;
   transition: width .6s cubic-bezier(.22, 1, .36, 1);
 }
-.hero-count { font-family: var(--mono); font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, .85); }
+.hero-count { font-family: var(--mono); font-size: 12px; font-weight: 800; color: rgba(43, 26, 2, .8); }
 .hero-go {
   grid-area: go;
   display: grid;
   place-items: center;
   width: 44px; height: 44px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .18);
+  background: rgba(43, 26, 2, .16);
 }
 .hero-go .ico { width: 22px; height: 22px; }
-.hero.done { background: linear-gradient(135deg, var(--lime-d), #0f6b36 60%, var(--bg-2)); box-shadow: 0 6px 0 #0a4f28; cursor: default; }
+.hero.done {
+  background: linear-gradient(135deg, var(--lime-2), var(--lime) 60%, #1fa855);
+  box-shadow: 0 6px 0 var(--lime-d), 0 16px 34px -14px rgba(43, 232, 107, .5);
+  color: #04240f;
+  cursor: default;
+}
+.hero.done .hero-label { color: rgba(4, 36, 15, .68); }
+.hero.done .hero-count { color: rgba(4, 36, 15, .8); }
 
 /* ── SESSION: the record dock ──────────────────────────────────────────────── */
 /* A single round control the thumb finds without looking, rather than a bar
@@ -1236,3 +1266,277 @@ body::after {
   .rec-dock { gap: 6px; }
   .rec-hint { display: none; }
 }
+
+/* ── PROGRESSIVE DISCLOSURE ────────────────────────────────────────────────── */
+/* Fifteen sets at equal weight is a wall to read rather than a choice to make.
+   What is offered is: the one thing to do next, then anything already started,
+   and the rest on request. */
+.show-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 13px;
+  border-radius: var(--r);
+  border: var(--bd) dashed var(--bg-3);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.show-all:active { color: var(--text); border-color: var(--gold); background: rgba(255, 255, 255, .04); }
+.show-all .ico { width: 16px; height: 16px; transition: transform .25s ease; }
+.show-all.open .ico { transform: rotate(90deg); }
+
+.group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 4px 2px -2px;
+}
+.group-label .count { color: var(--bg-3); }
+
+/* ── UNIT BANNER ───────────────────────────────────────────────────────────── */
+/* Which set is being worked through, and how far along. Sticky, because it is
+   the question the path below keeps raising. */
+.unit {
+  position: sticky;
+  top: 0;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 13px 14px;
+  margin-bottom: 6px;
+  border: none;
+  border-radius: var(--r);
+  background: linear-gradient(135deg, var(--gold-2), var(--gold) 60%, #e0a516);
+  color: #2b1a02;
+  box-shadow: 0 5px 0 var(--gold-d), 0 14px 30px -16px rgba(255, 201, 60, .6);
+  cursor: pointer;
+  transition: transform .07s ease, box-shadow .07s ease;
+}
+.unit:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--gold-d); }
+
+.unit-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; }
+.unit-icon .ico { width: 26px; height: 26px; }
+.unit-text { flex: 1; min-width: 0; }
+.unit-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(43, 26, 2, .62);
+}
+.unit-name {
+  display: block;
+  font-size: 17px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unit-count { font-family: var(--mono); font-size: 13px; font-weight: 800; color: rgba(43, 26, 2, .78); flex-shrink: 0; }
+.unit-switch { display: grid; place-items: center; width: 26px; flex-shrink: 0; }
+.unit-switch .ico { width: 20px; height: 20px; }
+
+/* ── THE PATH ──────────────────────────────────────────────────────────────── */
+/* A batch of ten words per node, laid out as a winding trail rather than a
+   list. A list of ten identical rows says "form to fill in"; a trail says
+   "you are somewhere along this", which is the truer description. */
+.path {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Room for the label under each node and the flag above the live one, which
+     otherwise collide with their neighbours. */
+  gap: 30px;
+  padding: 44px 0 32px;
+}
+
+.node-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  /* The offsets are what make it a trail. Small enough to stay in thumb reach
+     on a narrow screen. */
+  transition: transform .2s;
+}
+.node-row.off-0  { transform: translateX(0); }
+.node-row.off-1  { transform: translateX(46px); }
+.node-row.off-2  { transform: translateX(66px); }
+.node-row.off-3  { transform: translateX(46px); }
+.node-row.off-4  { transform: translateX(0); }
+.node-row.off-5  { transform: translateX(-46px); }
+.node-row.off-6  { transform: translateX(-66px); }
+.node-row.off-7  { transform: translateX(-46px); }
+
+.node {
+  position: relative;
+  width: 74px; height: 74px;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: var(--bg-2);
+  color: var(--text-3);
+  box-shadow: 0 6px 0 var(--bg-3);
+  transition: transform .08s ease, box-shadow .08s ease;
+  touch-action: manipulation;
+}
+.node:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--bg-3); }
+.node .ico { width: 30px; height: 30px; }
+
+/* Done: the same green that accepts a take. */
+.node.done {
+  background: linear-gradient(180deg, var(--lime-2), var(--lime));
+  color: #04240f;
+  box-shadow: 0 6px 0 var(--lime-d);
+}
+
+/* Live: where you are. Gold, because progress is gold everywhere in this app,
+   and the only node wearing a label. */
+.node.live {
+  background: linear-gradient(180deg, var(--gold-2), var(--gold));
+  color: #2b1a02;
+  box-shadow: 0 6px 0 var(--gold-d), 0 0 0 0 rgba(255, 201, 60, .5);
+  animation: nodePulse 2s ease-in-out infinite;
+}
+@keyframes nodePulse {
+  0%, 100% { box-shadow: 0 6px 0 var(--gold-d), 0 0 0 0 rgba(255, 201, 60, .5); }
+  60%      { box-shadow: 0 6px 0 var(--gold-d), 0 0 0 16px rgba(255, 201, 60, 0); }
+}
+
+/* Ahead: reachable, but not what is being suggested. */
+.node.ahead {
+  width: 52px; height: 52px;
+  opacity: .5;
+  box-shadow: 0 4px 0 var(--bg-3);
+}
+.node.ahead .ico { display: none; }
+.node.ahead::after {
+  content: '';
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--bg-3);
+}
+
+.node-flag {
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--gold);
+  color: #2b1a02;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 3px 0 var(--gold-d);
+  animation: flagBob 1.8s ease-in-out infinite;
+}
+@keyframes flagBob {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, -4px); }
+}
+
+.node-num {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.path-end {
+  margin-top: 26px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+/* ── TAB BAR ───────────────────────────────────────────────────────────────── */
+/* Three destinations, named. A hidden drawer is a thing users do not know is
+   there; a tab is a thing they can see. */
+.tabbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  border-top: var(--bd) solid var(--bg-3);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  min-height: 54px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color .18s, background .18s;
+}
+.tab .ico { width: 22px; height: 22px; }
+.tab.is-on { color: var(--gold); background: rgba(255, 201, 60, .1); }
+.tab:active { background: rgba(255, 255, 255, .05); }
+
+/* ── SETS PANEL ────────────────────────────────────────────────────────────── */
+/* The full fifteen, on request. Off the home screen entirely: a list of
+   everything is a reference, not a first thing to read. */
+.sheet-panel {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 51;
+  max-height: 84dvh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #2a1552, var(--bg-1) 40%, var(--bg-0));
+  border-top: var(--bd-hi) solid var(--bg-3);
+  border-top-left-radius: var(--r-xl);
+  border-top-right-radius: var(--r-xl);
+  box-shadow: 0 -24px 60px -20px #000;
+  transform: translateY(102%);
+  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
+  padding: 18px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+}
+.sheet-panel.show { transform: translateY(0); }
+.sheet-panel[hidden] { display: none; }
+
+.panel-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; flex-shrink: 0; }
+.panel-head h2 { flex: 1; font-size: 19px; font-weight: 800; }
+.panel-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }

@@ -194,17 +194,39 @@ const walk = (dir) => fs.existsSync(dir)
     check('there is no separate speaker field — the contributor is the account',
       await page.evaluate(() => !document.querySelector('#portal-speaker')));
 
-    const packCount = await page.evaluate(() => document.querySelectorAll('#packGrid .pack').length);
-    check('every category from the word database is offered as a card',
-      packCount === 15, `found ${packCount} cards`);
+    // The home screen shows one set's path, not all fifteen — the full list is
+    // a reference behind the Sets tab.
+    check('the home screen names the set being worked through',
+      (await page.textContent('#unitName')).trim().length > 1,
+      await page.textContent('#unitName'));
 
-    check('each card shows how much of its set is done',
+    const nodes = await page.evaluate(() => document.querySelectorAll('#path .node').length);
+    check('the path has one node per batch of ten words', nodes >= 8, `found ${nodes} nodes`);
+
+    check('exactly one node is the live one',
+      await page.evaluate(() => document.querySelectorAll('#path .node.live').length) === 1);
+
+    check('the live node is the one that invites a start',
+      await page.evaluate(() => !!document.querySelector('#path .node.live .node-flag')));
+
+    await page.click('#tabSets');
+    await page.waitForTimeout(450);
+    const packCount = await page.evaluate(() => document.querySelectorAll('#packGrid .pack').length);
+    check('every category is listed behind the Sets tab', packCount === 15, `found ${packCount}`);
+
+    check('each set row shows how much of it is done',
       (await page.textContent('#packGrid .pack .pack-meta')).match(/^0\/\d+$/) !== null,
       await page.textContent('#packGrid .pack .pack-meta'));
 
-    check('the portal offers a next step',
-      await page.isVisible('#heroCard') && (await page.textContent('#heroName')).trim().length > 1,
-      await page.textContent('#heroName'));
+    // Picking a set points the path at it rather than starting to record —
+    // choosing and committing stay separate.
+    const chosen = await page.textContent('#packGrid .pack:nth-child(2) .pack-name');
+    await page.click('#packGrid .pack:nth-child(2)');
+    await page.waitForTimeout(500);
+    check('choosing a set points the path at it without starting a session',
+      (await page.textContent('#unitName')).trim() === chosen.trim() &&
+      await page.isVisible('#screen-portal'),
+      `${await page.textContent('#unitName')} vs ${chosen}`);
 
     const portalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -212,12 +234,12 @@ const walk = (dir) => fs.existsSync(dir)
 
     await page.screenshot({ path: path.join(SHOTS, '02-portal.png'), fullPage: true });
 
-    // ── Start a session from a card ──────────────────────────────────────────
-    await page.click('#packGrid .pack');
+    // ── Start a session from the path ────────────────────────────────────────
+    await page.click('#path .node.live');
     await page.waitForSelector('#screen-play:not([hidden])');
 
     const promptWord = await page.textContent('#promptWord');
-    check('tapping a card opens a session on its first Telugu prompt',
+    check('tapping the live node opens a session on its first Telugu prompt',
       promptWord.trim().length > 0 && promptWord !== '—', `showed "${promptWord}"`);
 
     check('the instruction asks for Banjara',
@@ -321,7 +343,7 @@ const walk = (dir) => fs.existsSync(dir)
       JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
 
     // ── Finishing every prompt does celebrate ────────────────────────────────
-    await page.click('#packGrid .pack');
+    await page.click('#path .node.live');
     await page.waitForSelector('#screen-play:not([hidden])');
 
     // Answer the whole batch. Skipping is a real answer and is instant, which
@@ -424,12 +446,16 @@ const walk = (dir) => fs.existsSync(dir)
     // answered, so both count as done and neither comes back next session.
     // Everything answered so far, read back from the server rather than from
     // anything held on the device.
+    await page.click('#tabSets');
+    await page.waitForTimeout(450);
     const answered = await page.evaluate(() =>
       [...document.querySelectorAll('#packGrid .pack .pack-meta')]
         .map(e => Number(e.textContent.split('/')[0]))
         .reduce((a, b) => a + b, 0));
-    check('the portal reflects the words answered, read back from the server',
-      answered >= 11, `portal totals ${answered}`);
+    check('the sets list reflects the words answered, read back from the server',
+      answered >= 11, `totals ${answered}`);
+    await page.click('#btnCloseSets');
+    await page.waitForTimeout(400);
 
     // Only recordings are credited; skips are answers, not contributions.
     await page.click('#btnProfile');

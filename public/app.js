@@ -186,7 +186,88 @@
   }
 
   // ── Portal ──────────────────────────────────────────────────────────────────
-  let packs = [];                      // the index entries, with cached documents
+  let packs = [];                      // the categories, with progress folded in
+  let currentSet = null;               // the one the path is showing
+
+  /** Which set to show a path for: the one last worked on, else the first with
+   *  anything left to do. */
+  function chooseSet() {
+    if (!packs.length) return null;
+
+    const remembered = localStorage.getItem('solaris_set');
+    const kept = packs.find(p => p.id === remembered);
+    if (kept && packDone(kept) < kept.count) return kept;
+
+    return packs.find(p => packDone(p) > 0 && packDone(p) < p.count)
+        || packs.find(p => packDone(p) < p.count)
+        || packs[0];
+  }
+
+  function setCurrentSet(pack) {
+    currentSet = pack;
+    if (pack) localStorage.setItem('solaris_set', pack.id);
+    paintUnit();
+    paintPath();
+  }
+
+  function paintUnit() {
+    if (!currentSet) return;
+    $('unitIcon').innerHTML = ico(currentSet.icon || 'box');
+    $('unitName').textContent = currentSet.name;
+    $('unitCount').textContent = `${packDone(currentSet)}/${currentSet.count}`;
+  }
+
+  /**
+   * One node per batch of ten words.
+   *
+   * A node is a checkpoint rather than a fixed lesson: the words in a batch are
+   * drawn when it is opened, weighted toward whatever the archive has least of.
+   * So node three means "the third ten words you record from this set", not a
+   * particular ten.
+   */
+  function paintPath() {
+    const path = $('path');
+    path.innerHTML = '';
+    if (!currentSet) return;
+
+    const done = packDone(currentSet);
+    const total = currentSet.count;
+    const nodes = Math.ceil(total / CONFIG.batchSize);
+    const finished = Math.floor(done / CONFIG.batchSize);
+
+    for (let i = 0; i < nodes; i++) {
+      const row = document.createElement('div');
+      row.className = `node-row off-${i % 8}`;
+
+      const node = document.createElement('button');
+      node.type = 'button';
+      const state = i < finished ? 'done' : i === finished ? 'live' : 'ahead';
+      node.className = `node ${state}`;
+
+      const from = i * CONFIG.batchSize + 1;
+      const to = Math.min((i + 1) * CONFIG.batchSize, total);
+
+      node.innerHTML =
+        (state === 'live' ? '<span class="node-flag">Start</span>' : '') +
+        ico(state === 'done' ? 'check' : 'mic') +
+        `<span class="node-num">${from}–${to}</span>`;
+
+      node.setAttribute('aria-label',
+        state === 'done' ? `Words ${from} to ${to}, recorded`
+          : `Record words ${from} to ${to} of ${currentSet.name}`);
+
+      node.addEventListener('click', () => openPack(currentSet, node));
+      row.appendChild(node);
+      path.appendChild(row);
+    }
+
+    if (done >= total) {
+      const end = document.createElement('p');
+      end.className = 'path-end';
+      end.textContent = `Every word in ${currentSet.name} is recorded. Pick another set below.`;
+      path.appendChild(end);
+    }
+  }
 
   async function loadPacks() {
     try {
@@ -228,6 +309,7 @@
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       card.querySelector('.pack-fill').style.width = pct + '%';
+      card.querySelector('.pack-track').classList.toggle('empty', !pct);
       const meta = card.querySelector('.pack-meta');
       const next = `${done}/${pack.count}`;
       if (meta.textContent !== next) {
@@ -238,6 +320,7 @@
       }
       card.querySelector('.pack-go').innerHTML = ico(pct >= 100 ? 'check' : 'chevron');
       card.classList.toggle('complete', pct >= 100);
+      card.classList.toggle('started', done > 0 && pct < 100);
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
     }
   }
@@ -260,7 +343,7 @@
 
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = `pack accent-${pack.accent || 'gold'}${pct >= 100 ? ' complete' : ''}`;
+      card.className = 'pack' + (pct >= 100 ? ' complete' : done > 0 ? ' started' : '');
       card.dataset.pack = pack.id;
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
 
@@ -271,16 +354,20 @@
             <span class="pack-name">${escapeHtml(pack.name)}</span>
             <span class="pack-meta">${done}/${pack.count}</span>
           </span>
-          <span class="pack-track"><span class="pack-fill" style="width:${pct}%"></span></span>
+          <span class="pack-track${pct ? '' : ' empty'}"><span class="pack-fill" style="width:${pct}%"></span></span>
         </span>
         <span class="pack-go">${ico(pct >= 100 ? 'check' : 'chevron')}</span>`;
 
       card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
       card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
-      card.addEventListener('click', () => openPack(pack, card));
+      // Choosing a set from the list points the path at it. Recording starts
+      // from the path, so the choice and the commitment stay separate.
+      card.addEventListener('click', () => {
+        setCurrentSet(pack);
+        closeSets();
+      });
       grid.appendChild(card);
     });
-    paintHero();
   }
 
   function escapeHtml(str) {
@@ -343,52 +430,45 @@
     }
   }
 
-  /**
-   * Pick what to offer at the top: the set already part-done, or the first
-   * one not started. Choosing for the contributor beats making them scan six
-   * cards to work out where they were.
-   */
-  function paintHero() {
-    const hero = $('heroCard');
-    if (!packs.length) { hero.hidden = true; return; }
-
-    const withProgress = packs
-      .map(p => ({ pack: p, done: packDone(p) }))
-      .filter(x => x.done > 0 && x.done < x.pack.count)
-      .sort((a, b) => b.done - a.done);
-
-    const next = withProgress[0] ||
-      packs.map(p => ({ pack: p, done: packDone(p) })).find(x => x.done < x.pack.count);
-
-    if (!next) {
-      // Everything is done — say so rather than offering busywork.
-      hero.hidden = false;
-      hero.classList.add('done');
-      $('heroLabel').textContent = 'All sets complete';
-      $('heroName').textContent = 'Every word recorded';
-      $('heroCount').textContent = '';
-      $('heroFill').style.width = '100%';
-      $('heroGo').innerHTML = ico('check');
-      hero.onclick = null;
-      return;
-    }
-
-    hero.hidden = false;
-    hero.classList.remove('done');
-    $('heroLabel').textContent = next.done ? 'Continue where you left off' : 'Start here';
-    $('heroName').textContent = next.pack.name;
-    $('heroCount').textContent = `${next.done}/${next.pack.count}`;
-    $('heroFill').style.width = `${next.pack.count ? (next.done / next.pack.count) * 100 : 0}%`;
-    $('heroGo').innerHTML = ico('chevron');
-    hero.onclick = () => openPack(next.pack, hero);
-  }
-
   function paintPortal() {
     paintProfile();
     if ($('packGrid').children.length) refreshPackProgress();
     else renderPacks();
-    paintHero();
+    setCurrentSet(currentSet && packs.find(p => p.id === currentSet.id) || chooseSet());
     refreshQueue();
+  }
+
+  // ── Sets panel ──────────────────────────────────────────────────────────────
+  let setsOpen = false;
+
+  function openSets() {
+    if (setsOpen) return;
+    setsOpen = true;
+    renderPacks();
+    $('setsScrim').hidden = false;
+    $('setsPanel').hidden = false;
+    requestAnimationFrame(() => {
+      $('setsScrim').classList.add('show');
+      $('setsPanel').classList.add('show');
+    });
+  }
+
+  function closeSets() {
+    if (!setsOpen) return;
+    setsOpen = false;
+    $('setsScrim').classList.remove('show');
+    $('setsPanel').classList.remove('show');
+    setTimeout(() => {
+      $('setsScrim').hidden = true;
+      $('setsPanel').hidden = true;
+    }, 340);
+    setTab('learn');
+  }
+
+  function setTab(which) {
+    for (const [name, el] of [['learn', $('tabLearn')], ['sets', $('tabSets')], ['you', $('tabYou')]]) {
+      el.classList.toggle('is-on', name === which);
+    }
   }
 
   // ── Profile drawer ──────────────────────────────────────────────────────────
@@ -414,6 +494,7 @@
   function closeDrawer() {
     if (!drawerOpen) return;
     drawerOpen = false;
+    setTab('learn');
 
     $('drawerScrim').classList.remove('show');
     $('drawer').classList.remove('show');
@@ -1246,6 +1327,13 @@
     $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
     $('btnSignOut').addEventListener('click', signOut);
     $('btnProfile').addEventListener('click', openDrawer);
+    $('unitBanner').addEventListener('click', openSets);
+    $('btnCloseSets').addEventListener('click', closeSets);
+    $('setsScrim').addEventListener('click', closeSets);
+
+    $('tabLearn').addEventListener('click', () => { closeSets(); closeDrawer(); setTab('learn'); });
+    $('tabSets').addEventListener('click', () => { setTab('sets'); openSets(); });
+    $('tabYou').addEventListener('click', () => { setTab('you'); openDrawer(); });
     $('btnCloseDrawer').addEventListener('click', closeDrawer);
     $('drawerScrim').addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawerOpen) closeDrawer(); });
@@ -1297,6 +1385,11 @@
     $('skipIcon').innerHTML = ico('ban');
     $('recGlyph').innerHTML = ico('mic');
     $('btnQuit').innerHTML = ico('close');
+    $('btnCloseSets').innerHTML = ico('close');
+    $('unitSwitch').innerHTML = ico('chevron');
+    $('tabLearnIcon').innerHTML = ico('mic');
+    $('tabSetsIcon').innerHTML = ico('box');
+    $('tabYouIcon').innerHTML = ico('user');
     $('btnCloseDrawer').innerHTML = ico('close');
     $('btnReplay').innerHTML = ico('play');
     $('trophy').innerHTML = ico('award');
