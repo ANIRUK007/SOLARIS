@@ -223,8 +223,8 @@
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       card.querySelector('.pack-fill').style.width = pct + '%';
-      card.querySelector('.pack-meta').textContent = `${done} / ${pack.count} done`;
-      card.querySelector('.pack-go').textContent = pct >= 100 ? '✓' : '▶';
+      card.querySelector('.pack-meta').textContent = `${done}/${pack.count}`;
+      card.querySelector('.pack-go').textContent = pct >= 100 ? '✓' : '›';
       card.classList.toggle('complete', pct >= 100);
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
     }
@@ -255,12 +255,13 @@
       card.innerHTML = `
         <span class="pack-icon">${pack.icon || '🎙'}</span>
         <span class="pack-body">
-          <span class="pack-name">${escapeHtml(pack.name)}</span>
-          <span class="pack-desc">${escapeHtml(pack.description || '')}</span>
+          <span class="pack-top">
+            <span class="pack-name">${escapeHtml(pack.name)}</span>
+            <span class="pack-meta">${done}/${pack.count}</span>
+          </span>
           <span class="pack-track"><span class="pack-fill" style="width:${pct}%"></span></span>
-          <span class="pack-meta">${done} / ${pack.count} done</span>
         </span>
-        <span class="pack-go">${pct >= 100 ? '✓' : '▶'}</span>`;
+        <span class="pack-go">${pct >= 100 ? '✓' : '›'}</span>`;
 
       card.addEventListener('click', () => openPack(pack, card));
       grid.appendChild(card);
@@ -290,9 +291,9 @@
       $('xpNext').textContent = `${Math.max(0, ceiling - user.stats.xp)} XP to level ${user.level + 1}`;
       $('levelFill').style.width = Math.min(100, (into / span) * 100) + '%';
 
-      $('miniWords').textContent = user.stats.words;
-      $('miniSessions').textContent = user.stats.sessions;
-      $('miniStreak').textContent = user.stats.bestStreak;
+      $('wordsDone').textContent = `${user.stats.words} word${user.stats.words === 1 ? '' : 's'}`;
+      $('portalStreakVal').textContent = user.stats.streak || 0;
+      $('portalStreak').classList.toggle('cold', !user.stats.streak);
     }
 
     if ($('packGrid').children.length) refreshPackProgress();
@@ -337,8 +338,7 @@
     // await meant a tap that should have been refused would quietly start a
     // session a moment later, using whatever had been typed in the meantime.
     if (!readSpeaker()) {
-      toast('Enter the speaker ID first');
-      $('portal-speaker').focus();
+      toast('Sign in first');
       return;
     }
 
@@ -360,22 +360,23 @@
     }
   }
 
-  /** The speaker id as currently typed, or '' if it is not usable. */
+  /**
+   * The contributor is the speaker. There is no separate speaker field: the
+   * person signed in is the one whose Banjara is being recorded, so their
+   * account is the identity the archive files it under.
+   */
   function readSpeaker() {
-    return $('portal-speaker').value.trim().toUpperCase();
+    return SolarisAuth.user ? SolarisAuth.user.username : '';
   }
 
   function startSession(pack) {
     const speaker = readSpeaker();
     if (!speaker) {
-      // Reachable if the field is cleared while a pack is being fetched.
-      toast('Enter the speaker ID first');
-      $('portal-speaker').focus();
+      toast('Sign in first');
       return;
     }
 
     G.speaker = speaker;
-    localStorage.setItem('solaris_spk', speaker);
 
     // Resume rather than restart: a half-finished set should carry on from
     // where the speaker stopped, not repeat what is already recorded.
@@ -391,17 +392,18 @@
 
     G.index = 0;
     G.phase = 'bnj';
-    G.session = String(Number(localStorage.getItem('solaris_sess') || 0) + 1).padStart(2, '0');
-    localStorage.setItem('solaris_sess', String(Number(G.session)));
-    G.withTelugu = $('toggleTelugu').classList.contains('on');
+    G.withTelugu = false;          // contributors record Banjara only
     G.takes = { bnj: null, tel: null };
     G.results = [];
     G.xp = 0;
-    G.streak = 0;
-    G.bestStreak = 0;
+
+    // The streak carries over from previous sittings rather than restarting,
+    // so it is worth protecting.
+    G.streak = (SolarisAuth.user && SolarisAuth.user.stats.streak) || 0;
+    G.bestStreak = G.streak;
     G.startedAt = Date.now();
 
-    $('streakVal').textContent = '0';
+    $('streakVal').textContent = G.streak;
 
     buildSegbar();
     show('play');
@@ -826,9 +828,11 @@
     const tel = G.takes.tel;
     if (!bnj) return;
 
-    const base = `${G.speaker}_${item.id}`;
+    const base = `${G.speaker}_${item.id}`;   // the id repeats in the filename so a file stands alone
     const record = {
-      folder: `speakers/${G.speaker}/sessions/session_${G.session}/${item.id}`,
+      // Filed under the contributor and the set. Opening a set is not a
+      // numbered sitting, so there is no session folder in the path.
+      folder: `contributors/${G.speaker}/${G.pack.id}/${item.id}`,
       // No speech-to-text needed: the prompt is the transcript.
       transcript: item.te,
       names: {
@@ -844,8 +848,7 @@
         ...(tel ? { telugu: tel.cleaned, teluguRaw: tel.raw } : {}),
       },
       meta: {
-        speaker: G.speaker,
-        session: G.session,
+        contributor: G.speaker,
         pack: G.pack.id,
         prompt: { id: item.id, telugu: item.te, translit: item.translit, english: item.en, segment: item.segment },
         capturedAt: new Date().toISOString(),
@@ -951,16 +954,16 @@
    *  the audio files alone cannot show. */
   async function writeSessionLog(recorded, skipped) {
     const body = {
-      folder: `speakers/${G.speaker}/sessions/session_${G.session}`,
-      name: `session_${G.session}_log.json`,
+      folder: `contributors/${G.speaker}/logs`,
+      name: `${new Date(G.startedAt).toISOString().replace(/[:.]/g, '-')}.json`,
       log: {
-        speaker: G.speaker,
-        session: G.session,
+        contributor: G.speaker,
         pack: { id: G.pack.id, name: G.pack.name },
         withTelugu: G.withTelugu,
         startedAt: new Date(G.startedAt).toISOString(),
         finishedAt: new Date().toISOString(),
         xp: G.xp,
+        streak: G.streak,
         bestStreak: G.bestStreak,
         totals: { prompts: G.queue.length, recorded, skipped },
         items: G.queue.map((item, i) => ({
@@ -1017,25 +1020,6 @@
   // ── Wiring ──────────────────────────────────────────────────────────────────
   function init() {
     SolarisStore.configure({ baseUrl: CONFIG.serverUrl });
-
-    G.speaker = localStorage.getItem('solaris_spk') || 'SPK001';
-    $('portal-speaker').value = G.speaker;
-    // Progress is tracked per speaker, so the cards have to be redrawn when
-    // the id changes — but not on every keystroke, which would rebuild the
-    // grid under the operator's finger.
-    let speakerTimer;
-    $('portal-speaker').addEventListener('input', (e) => {
-      G.speaker = e.target.value.trim().toUpperCase() || 'SPK001';
-      localStorage.setItem('solaris_spk', G.speaker);
-      clearTimeout(speakerTimer);
-      speakerTimer = setTimeout(refreshPackProgress, 250);
-    });
-
-    const toggle = $('toggleTelugu');
-    toggle.addEventListener('click', () => {
-      const on = toggle.classList.toggle('on');
-      toggle.setAttribute('aria-checked', String(on));
-    });
 
     $('btnAuthSubmit').addEventListener('click', submitAuth);
     $('btnAuthToggle').addEventListener('click', () => {

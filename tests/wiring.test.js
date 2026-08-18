@@ -75,7 +75,6 @@ test('every text input is at least 16px so iOS does not zoom on focus', () => {
   const css = fs.readFileSync(path.join(pub, 'app.css'), 'utf8');
   const rules = [
     /\.field-group input, \.field-group select \{([\s\S]*?)\}/,
-    /\.speaker-row input \{([\s\S]*?)\}/,
   ];
   for (const re of rules) {
     const block = css.match(re);

@@ -69,8 +69,8 @@ mkcert -key-file certs/key.pem -cert-file certs/cert.pem localhost 192.168.1.42
 open  ─►  sign in / sign up      every recording is attributed to an account
           │
           ▼
-       portal                    level and XP, the speaker being recorded,
-          │                      and a card per word set with its progress
+       portal                    level, an XP loader filled by words
+          │                      contributed, a streak, and a card per word set
           ▼
        session                   one Telugu prompt at a time, recorded in
           │                      Banjara, graded on the spot
@@ -86,10 +86,14 @@ as a folder name, the Telugu text, and ideally a transliteration and gloss:
 { "id": "amma", "te": "అమ్మ", "translit": "amma", "en": "mother", "segment": "relation" }
 ```
 
-Progress is tracked per speaker, so a half-finished set resumes where that speaker stopped
+Progress is tracked per contributor, so a half-finished set resumes where they stopped
 rather than starting over. A word marked "no Banjara word for this" counts as answered —
 that a Telugu concept has no Banjara equivalent is a finding, and it is kept in the session
 log rather than silently dropped.
+
+XP is earned per word contributed. Opening a word set earns nothing on its own and no session
+tally is kept: the numbers that move are words, XP and the streak, and the streak carries
+across sittings rather than resetting when the phone is put down.
 
 ## Accounts
 
@@ -200,17 +204,21 @@ The queue, the retry logic and every caller depend only on `available()` and `pu
 ### Layout on disk
 
 ```
-dataset/speakers/SPK042/sessions/session_01/
-├── amma/
-│   ├── SPK042_amma_banjara.wav       cleaned
-│   ├── SPK042_amma_banjara_raw.wav   original
-│   ├── SPK042_amma_telugu.txt        the prompt, which is the transcript
-│   └── session.json                  scores, durations, filter settings, who recorded it
-├── nanna/ …
-└── session_01_log.json               prompt order, skips, timings, XP
+dataset/contributors/fieldworker/
+├── family/
+│   ├── amma/
+│   │   ├── fieldworker_amma_banjara.wav       cleaned
+│   │   ├── fieldworker_amma_banjara_raw.wav   original
+│   │   ├── fieldworker_amma_telugu.txt        the prompt, which is the transcript
+│   │   └── session.json                       scores, durations, filter settings, who recorded it
+│   └── nanna/ …
+├── animals/ …
+└── logs/2026-08-18T06-47-12-082Z.json         prompt order, skips, timings, XP
 ```
 
-With **+ Telugu** enabled, each word also gets `_telugu.wav` and `_telugu_raw.wav`.
+The contributor is the signed-in account: the person recording is the person speaking, so
+there is no separate speaker field to fill in. Paths carry no session number, because opening
+a word set is not a numbered sitting — only the words contributed are counted.
 
 ---
 

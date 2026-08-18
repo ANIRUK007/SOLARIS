@@ -115,7 +115,10 @@ class Auth {
       salt,
       hash: this._hash(password, salt),
       createdAt: new Date().toISOString(),
-      stats: { xp: 0, sessions: 0, words: 0, bestStreak: 0 },
+      // Sessions are not counted: opening a word set is not an achievement,
+      // contributing a word is. Streak carries across sessions so it means
+      // something beyond a single sitting.
+      stats: { xp: 0, words: 0, streak: 0, bestStreak: 0 },
     };
     this._save();
     return this.publicUser(name);
@@ -143,6 +146,7 @@ class Auth {
   publicUser(name) {
     const u = this.data.users[name];
     if (!u) return null;
+    this._normaliseStats(u);
     // Never let salt or hash leave the server.
     return {
       username: u.username,
@@ -153,16 +157,35 @@ class Auth {
     };
   }
 
-  /** Roll a finished session into the signed-in user's lifetime totals. */
-  recordSession(name, { xp = 0, words = 0, bestStreak = 0 } = {}) {
+  /**
+   * Roll a finished session into the user's lifetime totals.
+   *
+   * `streak` is the run of good takes as it stood at the end of the session,
+   * carried forward rather than reset, so a streak survives putting the phone
+   * down. Opening a word set adds nothing on its own.
+   */
+  recordSession(name, { xp = 0, words = 0, streak = null } = {}) {
     const u = this.data.users[name];
     if (!u) return null;
+
     u.stats.xp += Math.max(0, Math.round(xp));
     u.stats.words += Math.max(0, Math.round(words));
-    u.stats.sessions += 1;
-    u.stats.bestStreak = Math.max(u.stats.bestStreak, Math.round(bestStreak) || 0);
+
+    if (streak !== null && streak !== undefined) {
+      u.stats.streak = Math.max(0, Math.round(streak));
+      u.stats.bestStreak = Math.max(u.stats.bestStreak || 0, u.stats.streak);
+    }
+
+    u.stats.lastContributionAt = new Date().toISOString();
     this._save();
     return this.publicUser(name);
+  }
+
+  /** Migrate a store written before streaks were persisted. */
+  _normaliseStats(u) {
+    u.stats = Object.assign({ xp: 0, words: 0, streak: 0, bestStreak: 0 }, u.stats);
+    delete u.stats.sessions;
+    return u.stats;
   }
 
   _err(status, message) {

@@ -65,11 +65,14 @@
       <div class="who-name" id="userName">—</div>
       <div class="who-lvl" id="userLevel">Level 1</div>
     </div>
+    <div class="streak-pill" id="portalStreak" title="Words in a row">
+      <span class="flame">🔥</span><span id="portalStreakVal">0</span>
+    </div>
     <button class="icon-btn" id="btnSignOut" type="button" aria-label="Sign out" title="Sign out">⏻</button>
   </header>
 
   <div class="portal-body">
-    <!-- Progress toward the next level -->
+    <!-- XP toward the next level, earned per word contributed -->
     <div class="card level-card">
       <div class="level-row">
         <span class="level-badge" id="levelBadge">1</span>
@@ -79,25 +82,9 @@
             <span id="xpNext">120 XP to level 2</span>
           </div>
           <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
+          <div class="level-sub"><span id="wordsDone">0 words</span> contributed</div>
         </div>
       </div>
-      <div class="stat-row">
-        <div class="mini"><span class="mini-v" id="miniWords">0</span><span class="mini-k">words</span></div>
-        <div class="mini"><span class="mini-v" id="miniSessions">0</span><span class="mini-k">sessions</span></div>
-        <div class="mini"><span class="mini-v" id="miniStreak">0</span><span class="mini-k">best streak</span></div>
-      </div>
-    </div>
-
-    <!-- Who is being recorded -->
-    <div class="card speaker-card">
-      <label class="card-label" for="portal-speaker">Recording speaker</label>
-      <div class="speaker-row">
-        <input id="portal-speaker" type="text" maxlength="20" autocomplete="off"
-               autocapitalize="characters" spellcheck="false" enterkeyhint="done" placeholder="SPK001" />
-        <button class="chip-toggle" id="toggleTelugu" type="button" role="switch" aria-checked="false">+ Telugu</button>
-      </div>
-      <p class="card-hint">The person speaking Banjara. Change it when a new speaker sits down.
-        <strong>+ Telugu</strong> also records a Telugu take of each word.</p>
     </div>
 
     <h2 class="section-title">Word sets</h2>

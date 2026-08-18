@@ -424,7 +424,7 @@ async function handleSessionLog(req, res, username) {
     profile = auth.recordSession(username, {
       xp: log.xp,
       words: log.totals && log.totals.recorded,
-      bestStreak: log.bestStreak,
+      streak: log.streak,
     });
   }
 

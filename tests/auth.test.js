@@ -123,19 +123,62 @@ test('the public profile never exposes the hash or salt', () => {
   assert.ok(!('hash' in pub) && !('salt' in pub), JSON.stringify(pub));
 });
 
-test('sessions accumulate into lifetime stats and a level', () => {
+test('contributions accumulate into lifetime stats and a level', () => {
   const a = freshAuth('stats');
   a.register({ username: 'ravi', password: 'correcthorse' });
 
-  a.recordSession('ravi', { xp: 200, words: 12, bestStreak: 5 });
-  a.recordSession('ravi', { xp: 100, words: 6, bestStreak: 3 });
+  a.recordSession('ravi', { xp: 200, words: 12, streak: 5 });
+  a.recordSession('ravi', { xp: 100, words: 6, streak: 7 });
 
   const pub = a.publicUser('ravi');
   assert.strictEqual(pub.stats.xp, 300);
   assert.strictEqual(pub.stats.words, 18);
-  assert.strictEqual(pub.stats.sessions, 2);
-  assert.strictEqual(pub.stats.bestStreak, 5, 'best streak should keep the higher of the two');
   assert.strictEqual(pub.level, levelFor(300));
+  assert.strictEqual(pub.stats.streak, 7, 'the current streak should be the latest one');
+  assert.strictEqual(pub.stats.bestStreak, 7);
+});
+
+test('opening a word set is not counted as anything on its own', () => {
+  const a = freshAuth('nosessions');
+  a.register({ username: 'ravi', password: 'correcthorse' });
+  // Nothing contributed: the totals must not move, and no session tally exists.
+  a.recordSession('ravi', { xp: 0, words: 0, streak: 0 });
+
+  const pub = a.publicUser('ravi');
+  assert.strictEqual(pub.stats.words, 0);
+  assert.strictEqual(pub.stats.xp, 0);
+  assert.ok(!('sessions' in pub.stats), 'sessions are still being counted');
+});
+
+test('a streak survives between sittings and only resets when told to', () => {
+  const a = freshAuth('streaks');
+  a.register({ username: 'ravi', password: 'correcthorse' });
+
+  a.recordSession('ravi', { xp: 40, words: 3, streak: 3 });
+  assert.strictEqual(a.publicUser('ravi').stats.streak, 3);
+
+  // A sitting that reports no streak change leaves it standing.
+  a.recordSession('ravi', { xp: 10, words: 1 });
+  assert.strictEqual(a.publicUser('ravi').stats.streak, 3, 'the streak was dropped without being told to');
+
+  // A broken streak comes back as 0, but the best is remembered.
+  a.recordSession('ravi', { xp: 10, words: 1, streak: 0 });
+  assert.strictEqual(a.publicUser('ravi').stats.streak, 0);
+  assert.strictEqual(a.publicUser('ravi').stats.bestStreak, 3);
+});
+
+test('a store written before streaks were persisted still loads', () => {
+  const file = path.join(TMP, 'legacy-stats.json');
+  const a = new Auth(file);
+  a.register({ username: 'ravi', password: 'correcthorse' });
+  // Simulate the older shape on disk.
+  a.data.users.ravi.stats = { xp: 240, sessions: 4, words: 9, bestStreak: 2 };
+
+  const pub = a.publicUser('ravi');
+  assert.strictEqual(pub.stats.xp, 240);
+  assert.strictEqual(pub.stats.words, 9);
+  assert.strictEqual(pub.stats.streak, 0, 'a missing streak should read as zero');
+  assert.ok(!('sessions' in pub.stats), 'the stale session count should be dropped');
 });
 
 test('accounts survive a restart', () => {
@@ -273,10 +316,14 @@ function savePayload() {
     const log = await api.post('/api/session-log', {
       folder: 'speakers/SPK900/sessions/session_01',
       name: 'session_01_log.json',
-      log: { xp: 240, bestStreak: 4, totals: { recorded: 9 } },
+      log: { xp: 240, streak: 4, totals: { recorded: 9 } },
     }, token);
     check('the session log is accepted and returns an updated profile',
       log.status === 200 && log.body.profile && log.body.profile.stats.xp === 240,
+      JSON.stringify(log.body.profile && log.body.profile.stats));
+
+    check('the profile counts words contributed, not sessions opened',
+      log.body.profile && log.body.profile.stats.words === 9 && !('sessions' in log.body.profile.stats),
       JSON.stringify(log.body.profile && log.body.profile.stats));
 
     const logAnon = await api.post('/api/session-log', { folder: 'x', name: 'y.json', log: {} });

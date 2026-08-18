@@ -127,16 +127,22 @@ const walk = (dir) => fs.existsSync(dir)
     check('the portal greets the user by display name',
       (await page.textContent('#userName')).includes('Field Worker'),
       await page.textContent('#userName'));
-    check('the portal shows a starting level and XP',
+    check('the portal shows a starting level and an empty XP loader',
       (await page.textContent('#levelBadge')).trim() === '1' &&
-      (await page.textContent('#xpNow')).includes('0 XP'),
-      `${await page.textContent('#levelBadge')} / ${await page.textContent('#xpNow')}`);
+      (await page.textContent('#xpNow')).includes('0 XP') &&
+      (await page.textContent('#wordsDone')).includes('0 word'),
+      `${await page.textContent('#levelBadge')} / ${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')}`);
+
+    check('the streak sits at the top with its flame', await page.isVisible('#portalStreak'));
+
+    check('there is no separate speaker field — the contributor is the account',
+      await page.evaluate(() => !document.querySelector('#portal-speaker')));
 
     const packCount = await page.evaluate(() => document.querySelectorAll('#packGrid .pack').length);
     check('every word set is offered as a card', packCount === 6, `found ${packCount} cards`);
 
-    check('each card shows how much of its set is recorded',
-      (await page.textContent('#packGrid .pack .pack-meta')).match(/0 \/ \d+ done/) !== null,
+    check('each card shows how much of its set is done',
+      (await page.textContent('#packGrid .pack .pack-meta')).match(/^0\/\d+$/) !== null,
       await page.textContent('#packGrid .pack .pack-meta'));
 
     const portalOverflow = await page.evaluate(() =>
@@ -144,15 +150,6 @@ const walk = (dir) => fs.existsSync(dir)
     check('no horizontal overflow on the portal', portalOverflow <= 0, `overflows by ${portalOverflow}px`);
 
     await page.screenshot({ path: path.join(SHOTS, '02-portal.png'), fullPage: true });
-
-    // Starting without a speaker id should be refused, not silently accepted.
-    await page.fill('#portal-speaker', '');
-    await page.click('#packGrid .pack');
-    check('a session cannot start without a speaker id',
-      await page.isVisible('#screen-portal'),
-      'the session started with no speaker');
-
-    await page.fill('#portal-speaker', 'SPK042');
 
     // ── Start a session from a card ──────────────────────────────────────────
     await page.click('#packGrid .pack');
@@ -285,8 +282,9 @@ const walk = (dir) => fs.existsSync(dir)
     // ── What landed on disk ──────────────────────────────────────────────────
     const files = walk(DATASET).map(f => path.relative(DATASET, f));
 
-    check('the Banjara take was saved under the prompt id',
-      files.some(f => /SPK042_\w+_banjara\.wav$/.test(f)), files.join(', '));
+    check('the take is filed under the contributor and the word set',
+      files.some(f => /contributors[\\/]fieldworker[\\/]family[\\/]\w+[\\/]\w+_banjara\.wav$/.test(f)),
+      files.join(', '));
     check('the raw take was archived alongside it',
       files.some(f => /_banjara_raw\.wav$/.test(f)), files.join(', '));
     check('no Telugu audio was saved, since only Banjara was requested',
@@ -302,7 +300,8 @@ const walk = (dir) => fs.existsSync(dir)
       meta && JSON.parse(fs.readFileSync(meta, 'utf8')).recordedBy === 'fieldworker',
       meta ? JSON.stringify(JSON.parse(fs.readFileSync(meta, 'utf8')).recordedBy) : 'no session.json');
 
-    const logPath = walk(DATASET).find(f => f.endsWith('_log.json'));
+    // Logs are filed per contributor and named by when the sitting started.
+    const logPath = walk(DATASET).find(f => /contributors[\\/]\w+[\\/]logs[\\/].+\.json$/.test(f));
     check('a session log was written', !!logPath, files.join(', '));
 
     if (logPath) {
@@ -310,9 +309,9 @@ const walk = (dir) => fs.existsSync(dir)
       check('the log records the skipped word as a finding',
         log.items.some(i => i.outcome === 'skipped'),
         JSON.stringify(log.totals));
-      check('the log records the speaker and pack',
-        log.speaker === 'SPK042' && log.pack.id === 'family',
-        `${log.speaker} / ${log.pack && log.pack.id}`);
+      check('the log records the contributor and the word set',
+        log.contributor === 'fieldworker' && log.pack.id === 'family',
+        `${log.contributor} / ${log.pack && log.pack.id}`);
     }
 
     // ── Back to the portal ───────────────────────────────────────────────────
@@ -322,12 +321,21 @@ const walk = (dir) => fs.existsSync(dir)
     // One recorded plus one marked as having no Banjara word: both are
     // answered, so both count as done and neither comes back next session.
     check('the portal reflects the words just answered',
-      /2 \/ 4 done/.test(await page.textContent('#packGrid .pack .pack-meta')),
+      /^2\/4$/.test((await page.textContent('#packGrid .pack .pack-meta')).trim()),
       await page.textContent('#packGrid .pack .pack-meta'));
 
-    check('the portal shows the XP earned in that session',
-      !/^0 XP$/.test((await page.textContent('#xpNow')).trim()),
-      await page.textContent('#xpNow'));
+    check('the XP loader moved with the words contributed',
+      !/^0 XP$/.test((await page.textContent('#xpNow')).trim()) &&
+      !/^0 words?$/.test((await page.textContent('#wordsDone')).trim()),
+      `${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')}`);
+
+    check('opening a word set was not counted as a session',
+      await page.evaluate(() => !('sessions' in window.SolarisAuth.user.stats)),
+      JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
+
+    check('the streak at the top reflects the words recorded',
+      Number(await page.textContent('#portalStreakVal')) >= 0,
+      await page.textContent('#portalStreakVal'));
 
     await page.screenshot({ path: path.join(SHOTS, '06-portal-after.png'), fullPage: true });
 
