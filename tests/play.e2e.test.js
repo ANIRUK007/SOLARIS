@@ -92,6 +92,15 @@ const walk = (dir) => fs.existsSync(dir)
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check('no horizontal overflow on setup', setupOverflow <= 0, `overflows by ${setupOverflow}px`);
 
+    // The setup screen must fit a standard phone without clipping its own
+    // fields behind the start button.
+    const setupFits = await page.evaluate(() => {
+      const col = document.querySelector('#screen-setup .center-col');
+      return { over: col.scrollHeight - col.clientHeight, h: col.clientHeight };
+    });
+    check('the setup screen fits without scrolling', setupFits.over <= 2,
+      `content overflows by ${setupFits.over}px in ${setupFits.h}px`);
+
     await page.screenshot({ path: path.join(SHOTS, 'play-01-setup.png') });
 
     // ── Start ────────────────────────────────────────────────────────────────
@@ -198,6 +207,27 @@ const walk = (dir) => fs.existsSync(dir)
       await page.textContent('#statRecorded'));
 
     await page.waitForTimeout(800);
+
+    // Every stat tile must stack its value above its label. A generic class
+    // name once collided with the top-bar streak pill and turned one tile
+    // into a flex row, which only showed up by eye.
+    const tiles = await page.evaluate(() => [...document.querySelectorAll('.stat')].map(s => {
+      const v = s.querySelector('.v').getBoundingClientRect();
+      const k = s.querySelector('.k').getBoundingClientRect();
+      return { cls: s.className, stacked: k.top >= v.bottom - 1, sameLeft: Math.abs(k.left - v.left) < 2 };
+    }));
+    check('every completion stat stacks its value above its label',
+      tiles.every(t => t.stacked && t.sameLeft),
+      tiles.filter(t => !t.stacked || !t.sameLeft).map(t => t.cls).join(', '));
+
+    // Nothing may cover the primary button on the completion screen.
+    const buttonClear = await page.evaluate(() => {
+      const btn = document.querySelector('#btnAgain').getBoundingClientRect();
+      const mid = document.elementFromPoint(btn.left + btn.width / 2, btn.top + btn.height / 2);
+      return mid && (mid.id === 'btnAgain' || mid.closest('#btnAgain')) ? null : (mid ? mid.className || mid.id : 'nothing');
+    });
+    check('nothing overlaps the start-another-session button', buttonClear === null, `covered by ${buttonClear}`);
+
     await page.screenshot({ path: path.join(SHOTS, 'play-04-complete.png') });
 
     // ── What landed on disk ──────────────────────────────────────────────────

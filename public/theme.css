@@ -1,0 +1,145 @@
+/* theme.css — the shared design system for SOLARIS.
+ *
+ * The palette is drawn from Lambadi/Banjara textile work: an indigo ground,
+ * crimson and marigold embroidery, and the small mirrors (abhla) stitched
+ * into the cloth. That is the language the archive is collecting, so the
+ * interface reads as belonging to it rather than to a generic dashboard.
+ *
+ * Contrast is deliberately pushed hard. Recording happens outdoors, and a
+ * dark screen in daylight loses whatever contrast it did not start with —
+ * body text is ivory on indigo (about 13:1), and mid-grey text is not used
+ * for anything a speaker has to read.
+ *
+ * Every colour and shape primitive lives here; the two page stylesheets
+ * consume these tokens and add layout only.
+ */
+
+:root {
+  /* ── Ground: indigo, from darkest to card surfaces ───────────────────────── */
+  --ink:        #120a2a;   /* deepest, page background          */
+  --indigo:     #1a1038;   /* primary surface                   */
+  --indigo-2:   #241551;   /* raised card                       */
+  --indigo-3:   #2f1d68;   /* hover / active surface            */
+  --indigo-ink: #0d0620;   /* insets, inputs, wells             */
+
+  /* ── Embroidery threads ──────────────────────────────────────────────────── */
+  --crimson:    #e4322b;   /* primary action                    */
+  --crimson-d:  #9c1d18;   /* the pressed depth under it        */
+  --marigold:   #ffc24d;   /* accent, highlights, streak        */
+  --marigold-d: #c68a17;
+  --leaf:       #34c77b;   /* success                           */
+  --leaf-d:     #1f8a52;
+  --rose:       #ff6f91;   /* secondary accent                  */
+  --sky:        #5cc8ff;   /* informational                     */
+
+  /* ── Mirror work ─────────────────────────────────────────────────────────── */
+  --mirror:     #dfe6f2;   /* the bright rim of a stitched mirror */
+  --mirror-dim: rgba(223, 230, 242, .22);
+
+  /* ── Type ────────────────────────────────────────────────────────────────── */
+  --ivory:   #fff3e0;      /* primary text                      */
+  --ivory-2: #d9c9b8;      /* secondary text, still high contrast */
+  --ivory-3: #9b8aa8;      /* de-emphasised only; never for prose a speaker reads */
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+
+  /* ── Shape: chunky and forgiving ─────────────────────────────────────────── */
+  --r-sm: 10px;
+  --r:    16px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+
+  --bd:    2px;            /* standard border                   */
+  --bd-hi: 3px;            /* emphasised border                 */
+  --press: 5px;            /* button depth; collapses when held */
+
+  /* ── Safe areas ──────────────────────────────────────────────────────────── */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  --tap: 52px;             /* minimum touch target              */
+}
+
+/* ── Mirror-work motif ──────────────────────────────────────────────────────
+   A row of small bright circles, the way abhla mirrors are stitched along a
+   seam. Used as a decorative rule on cards and headers. */
+.mirror-rule {
+  height: 10px;
+  background-image: radial-gradient(circle at center, var(--mirror) 0 2.5px, transparent 3px);
+  background-size: 16px 10px;
+  background-repeat: repeat-x;
+  background-position: center;
+  opacity: .5;
+}
+
+/* A single mirror: bright rim, dark centre, the way it catches light. */
+.mirror-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0 18%, var(--mirror) 30%, #7d8ba3 60%, var(--indigo-ink) 100%);
+  box-shadow: 0 0 0 2px var(--mirror-dim);
+  flex-shrink: 0;
+}
+
+/* ── Chunky pressable button ────────────────────────────────────────────────
+   The bottom shadow is the button's depth. Pressing collapses it and moves
+   the face down by the same amount, which reads as a physical push — and it
+   forgives an imprecise tap, which matters for a first-time smartphone user. */
+.btn {
+  --btn-face: var(--crimson);
+  --btn-deep: var(--crimson-d);
+  --btn-text: #ffffff;
+
+  width: 100%;
+  min-height: 60px;
+  padding: 16px 20px;
+  border: none;
+  border-radius: var(--r);
+  background: var(--btn-face);
+  color: var(--btn-text);
+  box-shadow: 0 var(--press) 0 var(--btn-deep);
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  touch-action: manipulation;
+  transition: transform .06s ease, box-shadow .06s ease, filter .15s;
+}
+.btn:active:not(:disabled) {
+  transform: translateY(var(--press));
+  box-shadow: 0 0 0 var(--btn-deep);
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-primary { --btn-face: var(--leaf);     --btn-deep: var(--leaf-d);     --btn-text: #04240f; }
+.btn-record  { --btn-face: var(--crimson);  --btn-deep: var(--crimson-d);  --btn-text: #ffffff; }
+.btn-accent  { --btn-face: var(--marigold); --btn-deep: var(--marigold-d); --btn-text: #2b1a02; }
+
+/* Outline variant keeps the same footprint so rows stay aligned. */
+.btn-ghost {
+  background: transparent;
+  color: var(--ivory-2);
+  border: var(--bd) solid var(--indigo-3);
+  box-shadow: none;
+  font-size: 14px;
+  min-height: var(--tap);
+}
+.btn-ghost:active:not(:disabled) { transform: translateY(2px); background: rgba(255, 255, 255, .05); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

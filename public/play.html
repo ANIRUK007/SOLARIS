@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#070f1c" />
+<meta name="theme-color" content="#120a2a" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -13,6 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="theme.css" />
 <link rel="stylesheet" href="play.css" />
 </head>
 <body>
@@ -26,8 +27,7 @@
     </div>
 
     <p class="lede">
-      A Telugu word appears on screen.<br />
-      The speaker says it <strong>in Banjara</strong>. That is the whole loop.
+      A Telugu word appears. The speaker says it <strong>in Banjara</strong>.
     </p>
 
     <span class="srv-state checking" id="srvState"><span class="dot"></span><span id="srvLbl">checking…</span></span>
@@ -51,7 +51,7 @@
     <div class="toggle-row" id="toggleTelugu" role="switch" aria-checked="false" tabindex="0">
       <div class="t-text">
         <div class="t-title">Also record the Telugu</div>
-        <div class="t-sub">Adds a second take per word, so the archive holds paired audio instead of Banjara alone.</div>
+        <div class="t-sub">A second take per word, for paired audio.</div>
       </div>
       <div class="switch"></div>
     </div>
@@ -70,7 +70,7 @@
   <div class="topbar">
     <button class="icon-btn" id="btnQuit" type="button" aria-label="End session">✕</button>
     <div class="segbar" id="segbar" role="progressbar" aria-label="Session progress"></div>
-    <div class="streak" id="streakBox" title="Consecutive good takes">
+    <div class="streak-pill" id="streakBox" title="Consecutive good takes">
       <span class="flame">🔥</span><span id="streakVal">0</span>
     </div>
   </div>

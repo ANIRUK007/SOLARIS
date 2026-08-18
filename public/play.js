@@ -91,6 +91,12 @@
     ['setup', 'play', 'done'].forEach(s => { $('screen-' + s).hidden = s !== screen; });
   }
 
+  function hideToast() {
+    const el = $('toast');
+    clearTimeout(el._t);
+    el.classList.remove('show');
+  }
+
   function toast(msg, ms) {
     const el = $('toast');
     el.textContent = msg;
@@ -672,6 +678,9 @@
   // ── Finish ──────────────────────────────────────────────────────────────────
   async function finish() {
     hideSheet();
+    // A toast from the last action would land on top of the completion
+    // screen's buttons.
+    hideToast();
     releaseWakeLock();
 
     const recorded = G.results.filter(r => r === 'recorded').length;
@@ -739,7 +748,7 @@
   }
 
   function confetti() {
-    const colors = ['#f5a623', '#2dd4bf', '#46d160', '#60a5fa', '#a78bfa', '#ff4d4d'];
+    const colors = ['#e4322b', '#ffc24d', '#34c77b', '#5cc8ff', '#ff6f91', '#dfe6f2'];
     const layer = document.createElement('div');
     layer.className = 'confetti';
     for (let i = 0; i < 70; i++) {

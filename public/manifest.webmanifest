@@ -6,9 +6,12 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#060d18",
-  "theme_color": "#060d18",
-  "categories": ["utilities", "education"],
+  "background_color": "#120a2a",
+  "theme_color": "#120a2a",
+  "categories": [
+    "utilities",
+    "education"
+  ],
   "icons": [
     {
       "src": "icon.svg",

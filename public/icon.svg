@@ -1,13 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SOLARIS">
-  <rect width="512" height="512" rx="96" fill="#060d18"/>
-  <g fill="none" stroke="#f5a623" stroke-width="18">
-    <circle cx="256" cy="256" r="132"/>
-  </g>
-  <circle cx="256" cy="256" r="44" fill="#f5a623"/>
-  <g stroke="#2dd4bf" stroke-width="14" stroke-linecap="round" opacity="0.9">
-    <path d="M116 256h-42"/>
-    <path d="M438 256h-42"/>
-    <path d="M256 116V74"/>
-    <path d="M256 438v-42"/>
+  <!-- Indigo ground, the colour of the cloth -->
+  <rect width="512" height="512" rx="112" fill="#1a1038"/>
+
+  <!-- Crimson and marigold rings, the embroidered concentric motif -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#e4322b" stroke-width="16"/>
+  <circle cx="256" cy="256" r="112" fill="none" stroke="#ffc24d" stroke-width="10" stroke-dasharray="20 14"/>
+
+  <!-- The mirror at the centre, catching light -->
+  <circle cx="256" cy="256" r="58" fill="#dfe6f2"/>
+  <circle cx="238" cy="238" r="20" fill="#ffffff" opacity="0.9"/>
+  <circle cx="256" cy="256" r="58" fill="none" stroke="#0d0620" stroke-width="6"/>
+
+  <!-- Four mirrors on the seam -->
+  <g fill="#dfe6f2">
+    <circle cx="256" cy="66"  r="15"/>
+    <circle cx="256" cy="446" r="15"/>
+    <circle cx="66"  cy="256" r="15"/>
+    <circle cx="446" cy="256" r="15"/>
   </g>
 </svg>
