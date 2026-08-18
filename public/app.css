@@ -660,7 +660,7 @@ body::after {
 .text-link[hidden] { display: none; }
 
 /* ── PORTAL ────────────────────────────────────────────────────────────────── */
-.portal-top {
+.appbar {
   display: flex;
   align-items: center;
   gap: 11px;
@@ -1022,5 +1022,184 @@ body::after {
   .portal-body { max-width: 880px; margin: 0 auto; width: 100%; }
   .pack-grid { grid-template-columns: 1fr 1fr; }
   .screen { max-width: 100%; padding-left: 32px; padding-right: 32px; }
-  .portal-top { max-width: 880px; margin: 0 auto; width: 100%; }
+  .appbar { max-width: 880px; margin: 0 auto; width: 100%; }
+}
+
+/* ── ICONS ─────────────────────────────────────────────────────────────────── */
+/* One size rule for every icon: they inherit colour, so a button's own colour
+   is the icon's colour and nothing has to be restyled per context. */
+.ico {
+  width: 1.15em;
+  height: 1.15em;
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+}
+.icon-btn .ico { width: 21px; height: 21px; }
+.streak-pill .ico { width: 17px; height: 17px; }
+.pack-icon .ico { width: 25px; height: 25px; }
+.pack-go .ico { width: 20px; height: 20px; }
+.sheet-icon .ico { width: 25px; height: 25px; }
+.replay-btn .ico { width: 20px; height: 20px; margin: 0 auto; }
+.trophy .ico { width: 74px; height: 74px; margin: 0 auto; color: var(--gold); }
+.speak-btn .ico, .link-btn .ico { width: 18px; height: 18px; }
+
+.streak-pill .flame, .speak-btn span, .link-btn span { display: inline-flex; align-items: center; }
+
+/* ── APP BAR ───────────────────────────────────────────────────────────────── */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: linear-gradient(180deg, var(--bg-0) 68%, transparent);
+  padding-top: 4px;
+}
+
+/* ── HERO ──────────────────────────────────────────────────────────────────── */
+/* One clear next action. Six equal cards make the contributor decide where
+   they were; this decides it for them and leaves the grid as the override. */
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label go'
+    'name  go'
+    'meta  go';
+  gap: 4px 14px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 18px;
+  border: none;
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, var(--violet), #6d28d9 55%, var(--bg-2));
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 0 #4c1d95, 0 16px 34px -14px rgba(168, 85, 247, .8);
+  transition: transform .08s ease, box-shadow .08s ease;
+  overflow: hidden;
+}
+.hero:active { transform: translateY(5px); box-shadow: 0 1px 0 #4c1d95, 0 8px 18px -12px rgba(168, 85, 247, .8); }
+.hero[hidden] { display: none; }
+/* A sheen so the panel reads as raised rather than flat violet. */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 50% 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .16), transparent);
+  pointer-events: none;
+}
+
+.hero-label {
+  grid-area: label;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .75);
+}
+.hero-name { grid-area: name; font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+.hero-meta { grid-area: meta; display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.hero-track { flex: 1; height: 8px; background: rgba(0, 0, 0, .34); border-radius: 99px; overflow: hidden; }
+.hero-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--lime-2), var(--gold));
+  transition: width .6s cubic-bezier(.22, 1, .36, 1);
+}
+.hero-count { font-family: var(--mono); font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, .85); }
+.hero-go {
+  grid-area: go;
+  display: grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .18);
+}
+.hero-go .ico { width: 22px; height: 22px; }
+.hero.done { background: linear-gradient(135deg, var(--lime-d), #0f6b36 60%, var(--bg-2)); box-shadow: 0 6px 0 #0a4f28; cursor: default; }
+
+/* ── SESSION: the record dock ──────────────────────────────────────────────── */
+/* A single round control the thumb finds without looking, rather than a bar
+   of equal-weight buttons. */
+.rec-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.rec-hint {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  transition: color .2s;
+}
+
+.rec-button {
+  position: relative;
+  width: 96px; height: 96px;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--hot-2), var(--hot));
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 7px 0 var(--hot-d), 0 16px 36px -12px rgba(255, 46, 99, .75);
+  transition: transform .08s ease, box-shadow .08s ease;
+  touch-action: manipulation;
+}
+.rec-button:active { transform: translateY(6px); box-shadow: 0 1px 0 var(--hot-d), 0 8px 20px -12px rgba(255, 46, 99, .7); }
+.rec-glyph .ico { width: 40px; height: 40px; }
+
+/* A ring that breathes while recording, so the state is legible at arm's
+   length without reading the label. */
+.rec-ring {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 3px solid var(--hot);
+  opacity: 0;
+}
+.rec-button.recording { background: linear-gradient(180deg, #ff5c7c, #e01146); }
+.rec-button.recording .rec-ring { animation: ringBreathe 1.5s ease-in-out infinite; }
+@keyframes ringBreathe {
+  0%   { opacity: .85; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(1.35); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 10px 12px;
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 99px;
+  transition: color .18s, background .18s;
+}
+.link-btn:active { color: var(--text-2); background: rgba(255, 255, 255, .06); }
+
+/* Short landscape phones: shrink the dock so it still fits. */
+@media (max-height: 560px) and (orientation: landscape) {
+  .rec-button { width: 68px; height: 68px; }
+  .rec-glyph .ico { width: 28px; height: 28px; }
+  .rec-dock { gap: 6px; }
+  .rec-hint { display: none; }
 }

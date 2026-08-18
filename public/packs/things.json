@@ -1,7 +1,7 @@
 {
   "id": "things",
   "name": "Everyday Things",
-  "icon": "🔥",
+  "icon": "box",
   "accent": "gold",
   "description": "Objects handled every day: water, food, fire, a book.",
   "language": {

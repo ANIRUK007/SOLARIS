@@ -9,13 +9,14 @@
  * Strategy: network-first for the shell so a redeploy reaches the phone on
  * the next load, cache as the fallback when the network is gone.
  */
-const CACHE = 'solaris-shell-v5';
+const CACHE = 'solaris-shell-v6';
 const SHELL = [
   './',
   'index.html',
   'theme.css',
   'app.css',
   'app.js',
+  'icons.js',
   'auth.js',
   'dsp.js',
   'store.js',

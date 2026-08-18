@@ -21,6 +21,7 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  const ico = (name, cls) => SolarisIcons.svg(name, cls);
 
   const G = {
     pack: null,
@@ -232,7 +233,7 @@
         void meta.offsetWidth;
         meta.classList.add('bumped');
       }
-      card.querySelector('.pack-go').textContent = pct >= 100 ? '✓' : '›';
+      card.querySelector('.pack-go').innerHTML = ico(pct >= 100 ? 'check' : 'chevron');
       card.classList.toggle('complete', pct >= 100);
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
     }
@@ -261,7 +262,7 @@
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
 
       card.innerHTML = `
-        <span class="pack-icon">${pack.icon || '🎙'}</span>
+        <span class="pack-icon">${ico(pack.icon || 'box')}</span>
         <span class="pack-body">
           <span class="pack-top">
             <span class="pack-name">${escapeHtml(pack.name)}</span>
@@ -269,13 +270,14 @@
           </span>
           <span class="pack-track"><span class="pack-fill" style="width:${pct}%"></span></span>
         </span>
-        <span class="pack-go">${pct >= 100 ? '✓' : '›'}</span>`;
+        <span class="pack-go">${ico(pct >= 100 ? 'check' : 'chevron')}</span>`;
 
       card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
       card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
       card.addEventListener('click', () => openPack(pack, card));
       grid.appendChild(card);
     });
+    paintHero();
   }
 
   function escapeHtml(str) {
@@ -333,10 +335,52 @@
     }
   }
 
+  /**
+   * Pick what to offer at the top: the set already part-done, or the first
+   * one not started. Choosing for the contributor beats making them scan six
+   * cards to work out where they were.
+   */
+  function paintHero() {
+    const hero = $('heroCard');
+    if (!packs.length) { hero.hidden = true; return; }
+
+    const withProgress = packs
+      .map(p => ({ pack: p, done: Object.keys(packProgress(p.id)).length }))
+      .filter(x => x.done > 0 && x.done < x.pack.count)
+      .sort((a, b) => b.done - a.done);
+
+    const next = withProgress[0] ||
+      packs.map(p => ({ pack: p, done: Object.keys(packProgress(p.id)).length }))
+           .find(x => x.done < x.pack.count);
+
+    if (!next) {
+      // Everything is done — say so rather than offering busywork.
+      hero.hidden = false;
+      hero.classList.add('done');
+      $('heroLabel').textContent = 'All sets complete';
+      $('heroName').textContent = 'Every word recorded';
+      $('heroCount').textContent = '';
+      $('heroFill').style.width = '100%';
+      $('heroGo').innerHTML = ico('check');
+      hero.onclick = null;
+      return;
+    }
+
+    hero.hidden = false;
+    hero.classList.remove('done');
+    $('heroLabel').textContent = next.done ? 'Continue where you left off' : 'Start here';
+    $('heroName').textContent = next.pack.name;
+    $('heroCount').textContent = `${next.done}/${next.pack.count}`;
+    $('heroFill').style.width = `${next.pack.count ? (next.done / next.pack.count) * 100 : 0}%`;
+    $('heroGo').innerHTML = ico('chevron');
+    hero.onclick = () => openPack(next.pack, hero);
+  }
+
   function paintPortal() {
     paintProfile();
     if ($('packGrid').children.length) refreshPackProgress();
     else renderPacks();
+    paintHero();
     refreshQueue();
   }
 
@@ -528,6 +572,7 @@
 
       $('btnSpeak').hidden = !hasTeluguVoice();
       $('recLabel').textContent = 'Tap to record';
+      $('recGlyph').innerHTML = ico('mic');
       $('btnRecord').classList.remove('recording');
       $('btnSkip').hidden = teluguPhase;   // the Banjara answer is what can be absent
       $('recTimer').textContent = '00:00';
@@ -642,6 +687,7 @@
     G.recStart = Date.now();
 
     $('btnRecord').classList.add('recording');
+    $('recGlyph').innerHTML = ico('pause');
     $('recLabel').textContent = 'Tap to stop';
     $('meterWrap').classList.add('show');
     buzz(18);
@@ -671,6 +717,7 @@
     clearInterval(G.ticker);
     try { G.mr.stop(); } catch {}
     $('btnRecord').classList.remove('recording');
+    $('recGlyph').innerHTML = ico('mic');
     $('recLabel').textContent = 'Processing…';
     releaseWakeLock();
     buzz(12);
@@ -729,6 +776,7 @@
       console.error('[TAKE]', err);
       showError('playErr', `Could not process that take: ${err.message}`);
       $('recLabel').textContent = 'Tap to record';
+      $('recGlyph').innerHTML = ico('mic');
     } finally {
       G.busy = false;
     }
@@ -827,7 +875,7 @@
     const sheet = $('sheet');
 
     sheet.className = 'sheet ' + (passed ? 'good' : 'bad');
-    $('sheetIcon').textContent = passed ? '✓' : '↺';
+    $('sheetIcon').innerHTML = ico(passed ? 'check' : 'rotate');
     $('sheetTitle').textContent = passed ? pickPraise() : 'Let us try that again';
     $('sheetSub').textContent = passed
       ? (G.phase === 'tel' ? 'Telugu take captured.' : 'Banjara take captured.')
@@ -865,6 +913,8 @@
     if (!take) return;
     if (G.audio) { G.audio.pause(); URL.revokeObjectURL(G.audio.src); }
     G.audio = new Audio(URL.createObjectURL(take.cleaned));
+    $('btnReplay').innerHTML = ico('pause');
+    G.audio.addEventListener('ended', () => { $('btnReplay').innerHTML = ico('play'); });
     G.audio.play().catch(() => {});
   }
 
@@ -872,6 +922,7 @@
     G.takes[G.phase] = null;
     hideSheet();
     $('recLabel').textContent = 'Tap to record';
+    $('recGlyph').innerHTML = ico('mic');
     $('recTimer').textContent = '00:00';
     $('meterWrap').classList.remove('show');
   }
@@ -1175,6 +1226,19 @@
 
     // Read-only handle for diagnosing a session from a phone with no devtools.
     window.__solarisGame = G;
+
+    SolarisIcons.mount();
+
+    // Icons that never change, painted once.
+    $('streakIcon').innerHTML = ico('flame');
+    $('streakIconPlay').innerHTML = ico('flame');
+    $('speakIcon').innerHTML = ico('volume');
+    $('skipIcon').innerHTML = ico('ban');
+    $('recGlyph').innerHTML = ico('mic');
+    $('btnQuit').innerHTML = ico('close');
+    $('btnCloseDrawer').innerHTML = ico('close');
+    $('btnReplay').innerHTML = ico('play');
+    $('trophy').innerHTML = ico('award');
 
     SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
     loadPacks();

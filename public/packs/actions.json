@@ -1,7 +1,7 @@
 {
   "id": "actions",
   "name": "Actions",
-  "icon": "🚶",
+  "icon": "steps",
   "accent": "hot",
   "description": "Verbs — eat, walk, sing.",
   "language": {

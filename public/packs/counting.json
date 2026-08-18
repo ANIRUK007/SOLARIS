@@ -1,7 +1,7 @@
 {
   "id": "counting",
   "name": "Numbers & Time",
-  "icon": "🕒",
+  "icon": "clock",
   "accent": "violet",
   "description": "Counting and time words, where borrowing from Telugu is most likely.",
   "language": {

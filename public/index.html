@@ -59,7 +59,7 @@
 
 <!-- ══ PORTAL ═════════════════════════════════════════════════════════════ -->
 <section class="screen scrolls" id="screen-portal" hidden>
-  <header class="portal-top">
+  <header class="appbar">
     <button class="avatar" id="btnProfile" type="button" aria-label="Your profile" aria-haspopup="dialog">
       <span id="userAvatar">?</span>
       <span class="avatar-ring" id="avatarRing" aria-hidden="true"></span>
@@ -69,12 +69,23 @@
       <div class="who-lvl" id="userLevel">Level 1</div>
     </div>
     <div class="streak-pill" id="portalStreak" title="Words in a row">
-      <span class="flame">🔥</span><span id="portalStreakVal">0</span>
+      <span class="flame" id="streakIcon"></span><span id="portalStreakVal">0</span>
     </div>
   </header>
 
   <div class="portal-body">
-    <h2 class="section-title">Word sets</h2>
+    <!-- Whatever the contributor should do next, decided for them -->
+    <button class="hero" id="heroCard" type="button" hidden>
+      <span class="hero-label" id="heroLabel">Start here</span>
+      <span class="hero-name" id="heroName">—</span>
+      <span class="hero-meta">
+        <span class="hero-track"><span class="hero-fill" id="heroFill"></span></span>
+        <span class="hero-count" id="heroCount">0/0</span>
+      </span>
+      <span class="hero-go" id="heroGo"></span>
+    </button>
+
+    <h2 class="section-title">All word sets</h2>
     <div class="pack-grid" id="packGrid"></div>
     <div class="queue-note" id="portalQueue" hidden></div>
   </div>
@@ -83,10 +94,10 @@
 <!-- ══ SESSION ════════════════════════════════════════════════════════════ -->
 <section class="screen" id="screen-play" hidden>
   <div class="topbar">
-    <button class="icon-btn" id="btnQuit" type="button" aria-label="End session">✕</button>
+    <button class="icon-btn" id="btnQuit" type="button" aria-label="End session"></button>
     <div class="segbar" id="segbar" role="progressbar" aria-label="Session progress"></div>
     <div class="streak-pill" id="streakBox" title="Consecutive good takes">
-      <span class="flame">🔥</span><span id="streakVal">0</span>
+      <span class="flame" id="streakIconPlay"></span><span id="streakVal">0</span>
     </div>
   </div>
 
@@ -98,7 +109,7 @@
       <div class="word-te" id="promptWord" lang="te">—</div>
       <div class="word-translit" id="promptTranslit"></div>
       <div class="word-en" id="promptEn"></div>
-      <button class="speak-btn" id="btnSpeak" type="button" hidden>🔊 Hear it in Telugu</button>
+      <button class="speak-btn" id="btnSpeak" type="button" hidden><span id="speakIcon"></span> Hear it in Telugu</button>
     </div>
 
     <div class="meter-wrap" id="meterWrap">
@@ -109,18 +120,23 @@
     <div class="err-box" id="playErr" hidden></div>
   </div>
 
-  <div class="actions">
-    <button class="btn btn-rec" id="btnRecord" type="button">
-      <span class="rec-dot"></span><span id="recLabel">Tap to record</span>
+  <!-- One large circular control, thumb-sized and unmissable. -->
+  <div class="rec-dock">
+    <span class="rec-hint" id="recLabel">Tap to record</span>
+    <button class="rec-button" id="btnRecord" type="button" aria-label="Record">
+      <span class="rec-ring" aria-hidden="true"></span>
+      <span class="rec-glyph" id="recGlyph"></span>
     </button>
-    <button class="btn btn-ghost" id="btnSkip" type="button">No Banjara word for this</button>
+    <button class="link-btn" id="btnSkip" type="button">
+      <span id="skipIcon"></span> No Banjara word for this
+    </button>
   </div>
 </section>
 
 <!-- ══ COMPLETE ═══════════════════════════════════════════════════════════ -->
 <section class="screen" id="screen-done" hidden>
   <div class="center-col">
-    <div class="trophy" id="trophy">🏆</div>
+    <div class="trophy" id="trophy"></div>
     <div class="complete-title" id="doneTitle">Session complete</div>
     <div class="complete-sub" id="doneSub">Every word recorded and saved.</div>
 
@@ -148,7 +164,7 @@
       <div class="who-name" id="drawerName">—</div>
       <div class="who-lvl" id="drawerHandle">@—</div>
     </div>
-    <button class="icon-btn" id="btnCloseDrawer" type="button" aria-label="Close">✕</button>
+    <button class="icon-btn" id="btnCloseDrawer" type="button" aria-label="Close"></button>
   </div>
 
   <div class="drawer-body">
@@ -187,7 +203,7 @@
 <div class="sheet" id="sheet">
   <div class="sheet-inner">
     <div class="sheet-head">
-      <div class="sheet-icon" id="sheetIcon">✓</div>
+      <div class="sheet-icon" id="sheetIcon"></div>
       <div>
         <div class="sheet-title" id="sheetTitle">Nice!</div>
         <div class="sheet-sub" id="sheetSub"></div>
@@ -196,7 +212,7 @@
     </div>
     <div class="metrics" id="sheetMetrics"></div>
     <div class="sheet-row">
-      <button class="replay-btn" id="btnReplay" type="button" aria-label="Play the recording back">▶</button>
+      <button class="replay-btn" id="btnReplay" type="button" aria-label="Play the recording back"></button>
       <button class="btn btn-ghost" id="btnRetry" type="button">Retry</button>
       <button class="btn btn-primary" id="btnContinue" type="button">Continue</button>
     </div>
@@ -205,6 +221,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="icons.js"></script>
 <script src="auth.js"></script>
 <script src="dsp.js"></script>
 <script src="store.js"></script>

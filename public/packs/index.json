@@ -4,7 +4,7 @@
       "id": "family",
       "file": "family.json",
       "name": "Family & People",
-      "icon": "👪",
+      "icon": "users",
       "accent": "hot",
       "description": "Kinship terms — usually the most distinct vocabulary in a spoken language.",
       "count": 4
@@ -13,7 +13,7 @@
       "id": "animals",
       "file": "animals.json",
       "name": "Animals",
-      "icon": "🐘",
+      "icon": "paw",
       "accent": "lime",
       "description": "Creatures a speaker names from daily life, not from a book.",
       "count": 5
@@ -22,7 +22,7 @@
       "id": "village",
       "file": "village.json",
       "name": "Around the Village",
-      "icon": "🏞️",
+      "icon": "home",
       "accent": "cyan",
       "description": "Places and landscape — house, village, forest, river, hill.",
       "count": 5
@@ -31,7 +31,7 @@
       "id": "things",
       "file": "things.json",
       "name": "Everyday Things",
-      "icon": "🔥",
+      "icon": "box",
       "accent": "gold",
       "description": "Objects handled every day: water, food, fire, a book.",
       "count": 4
@@ -40,7 +40,7 @@
       "id": "counting",
       "file": "counting.json",
       "name": "Numbers & Time",
-      "icon": "🕒",
+      "icon": "clock",
       "accent": "violet",
       "description": "Counting and time words, where borrowing from Telugu is most likely.",
       "count": 6
@@ -49,7 +49,7 @@
       "id": "actions",
       "file": "actions.json",
       "name": "Actions",
-      "icon": "🚶",
+      "icon": "steps",
       "accent": "hot",
       "description": "Verbs — eat, walk, sing.",
       "count": 3

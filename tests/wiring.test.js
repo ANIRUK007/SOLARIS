@@ -53,7 +53,7 @@ test('every id used by app.js exists in index.html', () => {
 });
 
 test('index.html loads the scripts it depends on, in order', () => {
-  for (const src of ['auth.js', 'dsp.js', 'store.js', 'app.js']) {
+  for (const src of ['icons.js', 'auth.js', 'dsp.js', 'store.js', 'app.js']) {
     assert.ok(html.includes(src), `index.html never loads ${src}`);
   }
   // dsp.js and store.js define globals that app.js uses at startup, so they
@@ -61,6 +61,28 @@ test('index.html loads the scripts it depends on, in order', () => {
   assert.ok(html.indexOf('dsp.js') < html.indexOf('app.js'), 'dsp.js must load before app.js');
   assert.ok(html.indexOf('store.js') < html.indexOf('app.js'), 'store.js must load before app.js');
   assert.ok(html.indexOf('auth.js') < html.indexOf('app.js'), 'auth.js must load before app.js');
+  assert.ok(html.indexOf('icons.js') < html.indexOf('app.js'), 'icons.js must load before app.js');
+});
+
+test('the interface uses drawn icons, not emoji', () => {
+  const icons = require('../public/icons.js');
+  // Emoji render differently on every platform, cannot take the colour of
+  // what contains them, and blur at small sizes.
+  const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+
+  const offenders = [];
+  for (const [name, src] of [['index.html', html], ['app.js', app]]) {
+    for (const line of src.split('\n')) {
+      if (emoji.test(line)) offenders.push(`${name}: ${line.trim().slice(0, 60)}`);
+    }
+  }
+  assert.strictEqual(offenders.length, 0, `emoji still in the interface:\n  ${offenders.join('\n  ')}`);
+
+  // Every pack must name an icon the set actually provides.
+  const known = new Set(icons.names());
+  for (const entry of packIndex.packs) {
+    assert.ok(known.has(entry.icon), `${entry.id} asks for an unknown icon: ${entry.icon}`);
+  }
 });
 
 test('viewport is configured for notched phones', () => {

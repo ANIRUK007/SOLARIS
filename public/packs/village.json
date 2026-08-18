@@ -1,7 +1,7 @@
 {
   "id": "village",
   "name": "Around the Village",
-  "icon": "🏞️",
+  "icon": "home",
   "accent": "cyan",
   "description": "Places and landscape — house, village, forest, river, hill.",
   "language": {
