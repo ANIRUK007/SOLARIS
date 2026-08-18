@@ -51,6 +51,9 @@ const walk = (dir) => fs.existsSync(dir)
       PORT: String(PORT),
       SOLARIS_DATASET_DIR: DATASET,
       SARVAM_API_KEY: '', GROQ_API_KEY: '',
+      // Force the file backend. Without this a developer's .env would point
+      // the tests at the live project and they would write to it.
+      SUPABASE_URL: '', SUPABASE_SERVICE_KEY: '',
       SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
       SOLARIS_WORD_INDEX: path.join(DATASET, 'word-index.json'),
       SSL_CERT: path.join(DATASET, 'none'), SSL_KEY: path.join(DATASET, 'none'),

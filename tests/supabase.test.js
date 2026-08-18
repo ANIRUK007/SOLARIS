@@ -87,6 +87,35 @@ test('reference data is fetched once, not per request', async (db, s) => {
   assert.strictEqual(s.seen.length, 1, `hit the network ${s.seen.length} times for static data`);
 });
 
+test('a word list longer than one page is fetched in full', async (db, s) => {
+  // PostgREST caps a response at 1,000 rows. Without paging, a longer list
+  // comes back truncated with no error at all, and the tail is never handed
+  // to anyone — which is exactly what happened on the real project.
+  let served = 0;
+  const total = 1482;
+
+  const originalListener = s.server.listeners('request')[0];
+  s.server.removeAllListeners('request');
+  s.server.on('request', (req, res) => {
+    const offset = Number((req.url.match(/offset=(\d+)/) || [])[1] || 0);
+    const limit = Number((req.url.match(/limit=(\d+)/) || [])[1] || 1000);
+    const rows = [];
+    for (let i = offset; i < Math.min(offset + limit, total); i++) {
+      rows.push({ id: `w_${i}`, category: 'places', te: 'x' });
+    }
+    served += rows.length;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(rows));
+  });
+
+  const words = await db.words();
+  assert.strictEqual(words.length, total, `only ${words.length} of ${total} words were fetched`);
+  assert.strictEqual(served, total);
+
+  s.server.removeAllListeners('request');
+  s.server.on('request', originalListener);
+});
+
 test('a contributor is looked up by exact username', async (db, s) => {
   s.setReply({ status: 200, body: [{ username: 'ravi', display_name: 'Ravi', xp: 40, words_count: 3 }] });
   const row = await db.findContributor('ravi');

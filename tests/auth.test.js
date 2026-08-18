@@ -291,6 +291,9 @@ function savePayload() {
       SOLARIS_DATASET_DIR: DATASET,
       SOLARIS_USERS_FILE: USERS,
       SARVAM_API_KEY: '', GROQ_API_KEY: '',
+      // Force the file backend. Without this a developer's .env would point
+      // the tests at the live project and they would write to it.
+      SUPABASE_URL: '', SUPABASE_SERVICE_KEY: '',
       SSL_CERT: path.join(TMP, 'none'), SSL_KEY: path.join(TMP, 'none'),
     },
     stdio: ['ignore', 'ignore', 'inherit'],

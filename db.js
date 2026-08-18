@@ -172,13 +172,30 @@ class SupabaseDb {
     return text ? JSON.parse(text) : null;
   }
 
-  /** Reference data is static for the life of the process, so read it once. */
+  /**
+   * Every prompt, read once and kept for the life of the process.
+   *
+   * Paginated deliberately: PostgREST caps a response at 1,000 rows by
+   * default, and a word list longer than that would come back silently
+   * truncated — the request succeeds, the tail is simply missing, and the
+   * words that fall off the end are never handed to anyone.
+   */
   async words() {
-    if (!this._wordCache) {
-      this._wordCache = await this._request(
-        '/words?select=id,category,te,translit,en,level,word_order&active=is.true&order=category,word_order');
+    if (this._wordCache) return this._wordCache;
+
+    const page = 1000;
+    const all = [];
+    for (let offset = 0; ; offset += page) {
+      const rows = await this._request(
+        '/words?select=id,category,te,translit,en,level,word_order' +
+        `&active=is.true&order=category,word_order&limit=${page}&offset=${offset}`);
+      if (!rows || !rows.length) break;
+      all.push(...rows);
+      if (rows.length < page) break;
     }
-    return this._wordCache;
+
+    this._wordCache = all;
+    return all;
   }
 
   async categories() {

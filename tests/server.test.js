@@ -204,6 +204,10 @@ test('unknown routes return 404 JSON', async () => {
       SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
       SARVAM_API_KEY: '',
       GROQ_API_KEY: '',
+      // Force the file backend. Without this a developer's .env would point
+      // the tests at the live project and they would write to it.
+      SUPABASE_URL: '',
+      SUPABASE_SERVICE_KEY: '',
       SSL_CERT: path.join(DATASET, 'no-cert'),   // force plain HTTP for the test
       SSL_KEY: path.join(DATASET, 'no-key'),
     },
