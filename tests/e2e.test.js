@@ -52,6 +52,7 @@ const walk = (dir) => fs.existsSync(dir)
       SOLARIS_DATASET_DIR: DATASET,
       SARVAM_API_KEY: '', GROQ_API_KEY: '',
       SOLARIS_USERS_FILE: path.join(DATASET, 'users.json'),
+      SOLARIS_WORD_INDEX: path.join(DATASET, 'word-index.json'),
       SSL_CERT: path.join(DATASET, 'none'), SSL_KEY: path.join(DATASET, 'none'),
     },
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -156,7 +157,7 @@ const walk = (dir) => fs.existsSync(dir)
     check('the drawer sits fully within the viewport', drawerIn);
 
     check('the profile lists every word set',
-      await page.evaluate(() => document.querySelectorAll('#drawerSets .contrib-row').length) === 6);
+      await page.evaluate(() => document.querySelectorAll('#drawerSets .contrib-row').length) === 15);
 
     await page.screenshot({ path: path.join(SHOTS, '02b-profile.png') });
 
@@ -169,11 +170,16 @@ const walk = (dir) => fs.existsSync(dir)
       await page.evaluate(() => !document.querySelector('#portal-speaker')));
 
     const packCount = await page.evaluate(() => document.querySelectorAll('#packGrid .pack').length);
-    check('every word set is offered as a card', packCount === 6, `found ${packCount} cards`);
+    check('every category from the word database is offered as a card',
+      packCount === 15, `found ${packCount} cards`);
 
     check('each card shows how much of its set is done',
       (await page.textContent('#packGrid .pack .pack-meta')).match(/^0\/\d+$/) !== null,
       await page.textContent('#packGrid .pack .pack-meta'));
+
+    check('the portal offers a next step',
+      await page.isVisible('#heroCard') && (await page.textContent('#heroName')).trim().length > 1,
+      await page.textContent('#heroName'));
 
     const portalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -193,7 +199,13 @@ const walk = (dir) => fs.existsSync(dir)
       (await page.textContent('#instruction')).includes('Banjara'));
 
     const segCount = await page.evaluate(() => document.querySelectorAll('#segbar .seg').length);
-    check('the progress bar has one segment per word in the set', segCount === 4, `found ${segCount}`);
+    check('the session is a batch of prompts, not the whole category',
+      segCount === 10, `found ${segCount} segments`);
+
+    // The words handed out must come from the database, not be invented.
+    const promptId = await page.evaluate(() => window.__solarisGame.queue[0].id);
+    check('the prompt comes from the imported word database',
+      /^tel_[a-z]+_\d+$/.test(promptId), promptId);
 
     const fits = await page.evaluate(() => {
       const rec = document.querySelector('#btnRecord').getBoundingClientRect();
@@ -313,7 +325,7 @@ const walk = (dir) => fs.existsSync(dir)
     const files = walk(DATASET).map(f => path.relative(DATASET, f));
 
     check('the take is filed under the contributor and the word set',
-      files.some(f => /contributors[\\/]fieldworker[\\/]family[\\/]\w+[\\/]\w+_banjara\.wav$/.test(f)),
+      files.some(f => /contributors[\\/]fieldworker[\\/][\w-]+[\\/]tel_\w+[\\/]\w+_banjara\.wav$/.test(f)),
       files.join(', '));
     check('the raw take was archived alongside it',
       files.some(f => /_banjara_raw\.wav$/.test(f)), files.join(', '));
@@ -339,9 +351,11 @@ const walk = (dir) => fs.existsSync(dir)
       check('the log records the skipped word as a finding',
         log.items.some(i => i.outcome === 'skipped'),
         JSON.stringify(log.totals));
+      // Which set gets offered is decided at runtime, so the check is that a
+      // real one was recorded, not a particular one.
       check('the log records the contributor and the word set',
-        log.contributor === 'fieldworker' && log.pack.id === 'family',
-        `${log.contributor} / ${log.pack && log.pack.id}`);
+        log.contributor === 'fieldworker' && !!(log.pack && log.pack.id),
+        JSON.stringify({ contributor: log.contributor, pack: log.pack }));
     }
 
     // ── Back to the portal ───────────────────────────────────────────────────
@@ -350,9 +364,10 @@ const walk = (dir) => fs.existsSync(dir)
 
     // One recorded plus one marked as having no Banjara word: both are
     // answered, so both count as done and neither comes back next session.
-    check('the portal reflects the words just answered',
-      /^2\/4$/.test((await page.textContent('#packGrid .pack .pack-meta')).trim()),
-      await page.textContent('#packGrid .pack .pack-meta'));
+    // One recorded and one skipped, both read back from the server.
+    const firstMeta = await page.textContent('#packGrid .pack .pack-meta');
+    check('the portal reflects the words just answered, read back from the server',
+      /^2\/\d+$/.test(firstMeta.trim()), firstMeta);
 
     // One word was recorded and one skipped, so exactly one is credited.
     await page.click('#btnProfile');
@@ -376,6 +391,46 @@ const walk = (dir) => fs.existsSync(dir)
       JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
 
     await page.screenshot({ path: path.join(SHOTS, '06-portal-after.png'), fullPage: true });
+
+    // ── A second contributor gets different words ────────────────────────────
+    const mine = await page.evaluate(() => window.__solarisGame.queue.map(w => w.id));
+
+    // Registration is closed to strangers once an account exists, so the
+    // second contributor is created by the first — the way a lead adds a
+    // teammate — and then signs in normally.
+    const invited = await page.evaluate(async () => {
+      const r = await window.SolarisAuth.fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'second', password: 'secondpass2024', displayName: 'Second Voice' }),
+      });
+      return r.status;
+    });
+    check('an existing contributor can create an account for a teammate',
+      invited === 201, `status ${invited}`);
+
+    const other = await context.newPage();
+    await other.goto(BASE, { waitUntil: 'networkidle' });
+    await other.evaluate(() => localStorage.clear());
+    await other.reload({ waitUntil: 'networkidle' });
+    await other.fill('#auth-user', 'second');
+    await other.fill('#auth-pass', 'secondpass2024');
+    await other.click('#btnAuthSubmit');
+    await other.waitForSelector('#screen-portal:not([hidden])', { timeout: 15000 });
+
+    const theirBatch = await other.evaluate(async () => {
+      const r = await window.SolarisAuth.fetch('/api/words/batch?count=10');
+      return (await r.json()).words.map(w => w.id);
+    });
+
+    const overlap = theirBatch.filter(id => mine.includes(id));
+    check('a second contributor is handed a different set of words',
+      overlap.length <= 2, `${overlap.length} of 10 overlapped: ${overlap.join(', ')}`);
+
+    check('the second contributor starts with their own empty progress',
+      await other.evaluate(() => window.SolarisAuth.user.stats.words) === 0);
+
+    await other.close();
 
     // ── Landscape ────────────────────────────────────────────────────────────
     await page.setViewportSize({ width: 844, height: 390 });

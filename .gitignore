@@ -18,3 +18,7 @@ tests/screenshots/
 # Account store: password hashes and the token-signing secret.
 .solaris-users.json
 .solaris-users.json.*
+
+# Who has recorded what. Derived data — rebuildable from the recordings.
+.solaris-words.json
+.solaris-words.json.*

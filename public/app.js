@@ -18,6 +18,7 @@
     minScore: 50,
     minDuration: 0.6,
     baseXp: 10,
+    batchSize: 10,          // prompts handed out per sitting
   };
 
   const $ = (id) => document.getElementById(id);
@@ -34,6 +35,9 @@
 
     takes: { bnj: null, tel: null },
     results: [],             // one entry per prompt: recorded | skipped
+
+    coverage: null,          // how covered the archive is overall
+    doneSince: {},           // recorded this visit, before the next server read
     xp: 0,
     streak: 0,
     bestStreak: 0,
@@ -186,29 +190,28 @@
 
   async function loadPacks() {
     try {
-      const r = await fetch('packs/index.json', { cache: 'no-store' });
-      if (!r.ok) throw new Error(`packs/index.json returned ${r.status}`);
-      packs = (await r.json()).packs || [];
+      const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/words/categories', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`the word list returned ${r.status}`);
+      const data = await r.json();
+      packs = data.categories || [];
+      G.coverage = data.coverage || null;
     } catch (err) {
-      console.error('[PACKS]', err);
+      console.error('[WORDS]', err);
       packs = [];
     }
     renderPacks();
   }
 
-  /** Per-pack completion for the current speaker, kept on the device. The
-   *  server holds the audio; this is only what the portal needs to draw. */
-  function progressKey(packId) {
-    return `solaris_prog_${G.speaker}_${packId}`;
+  /**
+   * Progress lives on the server, keyed to the account, so it follows a
+   * contributor to whatever phone they pick up next. Locally we only hold
+   * what the last categories call returned, plus anything recorded since.
+   */
+  function packDone(pack) {
+    return (pack.done || 0) + (G.doneSince[pack.id] || 0);
   }
-  function packProgress(packId) {
-    try { return JSON.parse(localStorage.getItem(progressKey(packId))) || {}; }
-    catch { return {}; }
-  }
-  function markProgress(packId, itemId, outcome) {
-    const done = packProgress(packId);
-    done[itemId] = outcome;
-    try { localStorage.setItem(progressKey(packId), JSON.stringify(done)); } catch {}
+  function markProgress(packId) {
+    G.doneSince[packId] = (G.doneSince[packId] || 0) + 1;
   }
 
   /**
@@ -221,7 +224,7 @@
       const pack = packs.find(p => p.id === card.dataset.pack);
       if (!pack) continue;
 
-      const done = Object.keys(packProgress(pack.id)).length;
+      const done = packDone(pack);
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       card.querySelector('.pack-fill').style.width = pct + '%';
@@ -252,7 +255,7 @@
     }
 
     packs.forEach((pack, index) => {
-      const done = Object.keys(packProgress(pack.id)).length;
+      const done = packDone(pack);
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       const card = document.createElement('button');
@@ -322,7 +325,7 @@
     box.innerHTML = '';
 
     for (const pack of packs) {
-      const done = Object.keys(packProgress(pack.id)).length;
+      const done = packDone(pack);
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       const row = document.createElement('div');
@@ -345,13 +348,12 @@
     if (!packs.length) { hero.hidden = true; return; }
 
     const withProgress = packs
-      .map(p => ({ pack: p, done: Object.keys(packProgress(p.id)).length }))
+      .map(p => ({ pack: p, done: packDone(p) }))
       .filter(x => x.done > 0 && x.done < x.pack.count)
       .sort((a, b) => b.done - a.done);
 
     const next = withProgress[0] ||
-      packs.map(p => ({ pack: p, done: Object.keys(packProgress(p.id)).length }))
-           .find(x => x.done < x.pack.count);
+      packs.map(p => ({ pack: p, done: packDone(p) })).find(x => x.done < x.pack.count);
 
     if (!next) {
       // Everything is done — say so rather than offering busywork.
@@ -449,27 +451,36 @@
    * separate file and are fetched on the first tap, then kept for the rest of
    * the visit.
    */
+  /**
+   * Ask the server for a batch of prompts from this category.
+   *
+   * Drawn fresh every time rather than cached: the server excludes what this
+   * contributor has already answered and favours words nobody has covered, so
+   * two people working at once are not handed the same list.
+   */
   async function openPack(entry, card) {
-    // Validate before the fetch, not after it. Checking on the far side of an
-    // await meant a tap that should have been refused would quietly start a
-    // session a moment later, using whatever had been typed in the meantime.
     if (!readSpeaker()) {
       toast('Sign in first');
       return;
     }
 
-    if (entry.items) return startSession(entry);
-
     card.classList.add('loading');
     try {
-      const r = await fetch('packs/' + entry.file, { cache: 'no-store' });
-      if (!r.ok) throw new Error(`${entry.file} returned ${r.status}`);
-      const doc = await r.json();
-      entry.items = doc.items || [];
-      if (!entry.items.length) throw new Error('that set has no words in it');
+      const url = `${CONFIG.serverUrl}/api/words/batch?category=${encodeURIComponent(entry.id)}&count=${CONFIG.batchSize}`;
+      const r = await SolarisAuth.fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`the word list returned ${r.status}`);
+
+      const data = await r.json();
+      if (!data.words || !data.words.length) {
+        toast(`Nothing left in ${entry.name} — every word is done`, 3200);
+        return;
+      }
+
+      entry.items = data.words;
+      entry.remaining = data.remaining;
       startSession(entry);
     } catch (err) {
-      console.error('[PACK]', err);
+      console.error('[BATCH]', err);
       toast(`Could not open ${entry.name}: ${err.message}`, 3600);
     } finally {
       card.classList.remove('loading');
@@ -494,17 +505,10 @@
 
     G.speaker = speaker;
 
-    // Resume rather than restart: a half-finished set should carry on from
-    // where the speaker stopped, not repeat what is already recorded.
-    const done = packProgress(pack.id);
-    const remaining = (pack.items || []).filter(i => !done[i.id]);
-
+    // The batch is already filtered to words this contributor has not
+    // answered, so it is played as given.
     G.pack = pack;
-    G.queue = remaining.length ? remaining : pack.items.slice();
-    if (!remaining.length) {
-      try { localStorage.removeItem(progressKey(pack.id)); } catch {}
-      toast('Starting this set again');
-    }
+    G.queue = pack.items.slice();
 
     G.index = 0;
     G.phase = 'bnj';
@@ -1012,7 +1016,7 @@
     setTimeout(() => $('streakBox').classList.remove('pulse'), 500);
 
     G.results[G.index] = 'recorded';
-    markProgress(G.pack.id, item.id, 'recorded');
+    markProgress(G.pack.id);
     advance();
   }
 
@@ -1021,7 +1025,17 @@
     // A word with no Banjara equivalent is a finding, not a gap — it is kept
     // in the session log rather than silently dropped.
     G.results[G.index] = 'skipped';
-    markProgress(G.pack.id, currentItem().id, 'skipped');
+    markProgress(G.pack.id);
+
+    // Tell the server too: a word with no Banjara form should not come back
+    // to this contributor, and it is a finding worth keeping.
+    const wordId = currentItem().id;
+    SolarisAuth.fetch(CONFIG.serverUrl + '/api/words/skip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wordId }),
+    }).catch(() => {});
+
     G.streak = 0;
     $('streakVal').textContent = '0';
     toast('Marked as “no Banjara word”');
@@ -1093,6 +1107,8 @@
       ? `${recorded} recorded, ${skipped} marked as having no Banjara word.`
       : 'Every word recorded and saved.';
 
+    G.doneSince = {};
+    loadPacks();            // re-read progress from the server
     show('done');
     confetti();
     blip('good');

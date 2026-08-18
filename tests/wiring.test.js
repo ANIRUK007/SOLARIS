@@ -15,7 +15,7 @@ const html = fs.readFileSync(path.join(pub, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(pub, 'app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(pub, 'sw.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(pub, 'manifest.webmanifest'), 'utf8'));
-const packIndex = JSON.parse(fs.readFileSync(path.join(pub, 'packs', 'index.json'), 'utf8'));
+const wordDb = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', 'words.json'), 'utf8'));
 
 let passed = 0;
 function test(name, fn) {
@@ -78,10 +78,10 @@ test('the interface uses drawn icons, not emoji', () => {
   }
   assert.strictEqual(offenders.length, 0, `emoji still in the interface:\n  ${offenders.join('\n  ')}`);
 
-  // Every pack must name an icon the set actually provides.
+  // Every category must name an icon the sprite actually provides.
   const known = new Set(icons.names());
-  for (const entry of packIndex.packs) {
-    assert.ok(known.has(entry.icon), `${entry.id} asks for an unknown icon: ${entry.icon}`);
+  for (const cat of wordDb.categories) {
+    assert.ok(known.has(cat.icon), `${cat.id} asks for an unknown icon: ${cat.icon}`);
   }
 });
 
@@ -144,32 +144,26 @@ test('every file the service worker precaches exists', () => {
   }
 });
 
-test('the pack index and every pack it names are well formed', () => {
-  assert.ok(packIndex.packs && packIndex.packs.length, 'the pack index is empty');
+test('the word database is well formed', () => {
+  assert.ok(wordDb.words.length > 1000, `only ${wordDb.words.length} words imported`);
+  assert.ok(wordDb.categories.length, 'no categories');
 
-  const seen = new Set();
-  for (const entry of packIndex.packs) {
-    assert.ok(entry.id && entry.file, `incomplete index entry: ${JSON.stringify(entry)}`);
-    assert.ok(!seen.has(entry.id), `duplicate pack id: ${entry.id}`);
-    seen.add(entry.id);
+  const ids = new Set();
+  const counted = {};
+  for (const word of wordDb.words) {
+    assert.ok(word.id, `a word has no id: ${JSON.stringify(word)}`);
+    assert.ok(!ids.has(word.id), `duplicate word id: ${word.id}`);
+    ids.add(word.id);
+    // Ids become directory names on disk.
+    assert.ok(/^[a-z0-9_-]+$/.test(word.id), `${word.id} is not safe as a folder name`);
+    // A prompt that is not actually Telugu is a broken prompt.
+    assert.ok(/[\u0C00-\u0C7F]/.test(word.te || ''), `${word.id} contains no Telugu characters`);
+    counted[word.category] = (counted[word.category] || 0) + 1;
+  }
 
-    const file = path.join(pub, 'packs', entry.file);
-    assert.ok(fs.existsSync(file), `the index names a missing pack: ${entry.file}`);
-
-    const pack = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.strictEqual(pack.items.length, entry.count,
-      `${entry.id}: index says ${entry.count} words, the pack holds ${pack.items.length}`);
-
-    const ids = new Set();
-    for (const item of pack.items) {
-      assert.ok(item.id, `an item in ${entry.id} has no id`);
-      assert.ok(!ids.has(item.id), `duplicate prompt id in ${entry.id}: ${item.id}`);
-      ids.add(item.id);
-      // Prompt ids become directory names on disk.
-      assert.ok(/^[a-z0-9_-]+$/.test(item.id), `${item.id} is not safe as a folder name`);
-      // A prompt that is not actually Telugu is a broken prompt.
-      assert.ok(/[\u0C00-\u0C7F]/.test(item.te || ''), `${item.id} contains no Telugu characters`);
-    }
+  for (const cat of wordDb.categories) {
+    assert.strictEqual(cat.count, counted[cat.id] || 0,
+      `${cat.id}: header says ${cat.count}, the list holds ${counted[cat.id] || 0}`);
   }
 });
 

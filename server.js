@@ -20,6 +20,7 @@
  */
 
 const { Auth, levelFor, xpForLevel } = require('./auth.js');
+const { Words } = require('./words.js');
 
 const http  = require('http');
 const https = require('https');
@@ -57,6 +58,13 @@ const MAX_BODY_BYTES = 60 * 1024 * 1024;   // one session is a few hundred KB; t
 // Accounts live next to the server, not in the dataset — the dataset gets
 // copied around and shared, and password hashes should not travel with it.
 const auth = new Auth(process.env.SOLARIS_USERS_FILE || path.join(__dirname, '.solaris-users.json'));
+
+// The prompt database, and the index of who has recorded what. The index is
+// derived data: the recordings themselves are the archive.
+const words = new Words({
+  dataFile: process.env.SOLARIS_WORDS_FILE || path.join(__dirname, 'data', 'words.json'),
+  indexFile: process.env.SOLARIS_WORD_INDEX || path.join(__dirname, '.solaris-words.json'),
+});
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -390,6 +398,11 @@ async function handleSave(req, res, username) {
   let profile = null;
   let awarded = 0;
   if (username) {
+    // Mark the prompt as covered so the randomiser stops handing it out to
+    // this contributor and starts favouring thinner words for everyone else.
+    const promptId = parsedMeta && parsedMeta.prompt && parsedMeta.prompt.id;
+    if (promptId) words.recordWord(username, promptId);
+
     const scores = (parsedMeta && parsedMeta.scores) || {};
     const credit = auth.recordWord(username, {
       score: scores.banjara,
@@ -488,6 +501,43 @@ function handleMe(req, res) {
   sendJSON(res, 200, { user: auth.publicUser(username) });
 }
 
+// ── Word routes ───────────────────────────────────────────────────────────────
+/** The category list, with the caller's own progress folded in. */
+function handleCategories(req, res, username) {
+  sendJSON(res, 200, {
+    categories: words.progress(username),
+    coverage: words.coverageSummary(),
+  });
+}
+
+/**
+ * A batch of prompts to record. Drawn fresh each time and weighted toward
+ * thin coverage, so two contributors are not handed the same words and the
+ * archive fills evenly rather than deepening on whatever sits at the top of
+ * the list.
+ */
+function handleBatch(req, res, username) {
+  const params = new URLSearchParams((req.url.split('?')[1] || ''));
+  const category = params.get('category') || null;
+  const count = Math.max(1, Math.min(50, Number(params.get('count')) || 10));
+
+  if (category && !words.byCategory.has(category)) {
+    return sendJSON(res, 404, { error: `No category named "${category}"` });
+  }
+
+  const batch = words.batch(username, { category, count });
+  sendJSON(res, 200, { category, words: batch.words, remaining: batch.remaining });
+}
+
+async function handleSkip(req, res, username) {
+  const payload = await readJSON(req, res);
+  if (!payload) return;
+  if (!payload.wordId) return sendJSON(res, 400, { error: 'Expected { wordId }' });
+
+  const noted = words.skipWord(username, payload.wordId);
+  sendJSON(res, 200, { success: true, noted });
+}
+
 // ── Request handler ───────────────────────────────────────────────────────────
 async function handler(req, res) {
   setCORS(res);
@@ -515,6 +565,22 @@ async function handler(req, res) {
     if (req.method === 'POST' && pathname === '/api/auth/register') return await handleRegister(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/login')    return await handleLogin(req, res);
     if (req.method === 'GET'  && pathname === '/api/auth/me')       return handleMe(req, res);
+
+    if (req.method === 'GET' && pathname === '/api/words/categories') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return handleCategories(req, res, who.user);
+    }
+    if (req.method === 'GET' && pathname === '/api/words/batch') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return handleBatch(req, res, who.user);
+    }
+    if (req.method === 'POST' && pathname === '/api/words/skip') {
+      const who = requireUser(req, res);
+      if (!who.ok) return;
+      return await handleSkip(req, res, who.user);
+    }
 
     // Everything below writes to the archive or spends an API budget, so it
     // runs as a known user once accounts exist.
@@ -565,6 +631,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Dataset     : ${BASE_PATH}`);
   console.log(`  STT engines : ${engines.length ? engines.join(', ') : 'none configured (transcribe manually)'}`);
   console.log(`  Accounts    : ${auth.userCount === 0 ? 'none yet — the first sign-up becomes the first user' : `${auth.userCount} registered (sign-in required)`}`);
+  const cov = words.coverageSummary();
+  console.log(`  Prompts     : ${cov.total} words in ${words.categories.length} categories (${cov.covered} recorded at least once)`);
   console.log('');
   if (!haveCerts) {
     console.log('  NOTE: running over plain HTTP. Phones will refuse microphone');

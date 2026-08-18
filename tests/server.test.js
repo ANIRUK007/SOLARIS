@@ -62,7 +62,7 @@ test('GET / serves the app, opening on the account screen', async () => {
 });
 
 test('static assets are served from public/', async () => {
-  for (const asset of ['dsp.js', 'store.js', 'auth.js', 'theme.css', 'app.css', 'packs/index.json', 'manifest.webmanifest']) {
+  for (const asset of ['dsp.js', 'store.js', 'auth.js', 'icons.js', 'theme.css', 'app.css', 'manifest.webmanifest']) {
     const r = await fetch(`${BASE}/${asset}`);
     assert.strictEqual(r.status, 200, `${asset} returned ${r.status}`);
   }

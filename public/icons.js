@@ -51,6 +51,20 @@
     user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0"/>',
     cloud: '<path d="M7 18.5a4.2 4.2 0 0 1 .5-8.4 5.6 5.6 0 0 1 10.7 1.4A3.8 3.8 0 0 1 17.6 18.5z"/><path d="M12 20.5v-6"/><path d="M9.6 16.6 12 14.2l2.4 2.4"/>',
     trending: '<path d="M3.5 16.5 9 11l3.5 3.5L20.5 6.5"/><path d="M15.5 6.5h5v5"/>',
+    // Abstract ideas
+    sparkle: '<path d="M12 3.2 13.9 9 19.7 10.9 13.9 12.8 12 18.6 10.1 12.8 4.3 10.9 10.1 9z"/><path d="M18.4 16.4l.8 2.3 2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8z"/>',
+    // Descriptive words
+    tag: '<path d="M11.4 3.5H20v8.6l-8.6 8.6a1.7 1.7 0 0 1-2.4 0l-6.2-6.2a1.7 1.7 0 0 1 0-2.4z"/><circle cx="16.2" cy="7.8" r="1.4"/>',
+    // Manner and direction
+    compass: '<circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4 13.8 13.8 8.4 15.6 10.2 10.2z"/>',
+    // Joining words
+    link: '<path d="M10 13.6a3.6 3.6 0 0 0 5.4.4l2.4-2.4a3.6 3.6 0 0 0-5.1-5.1L11.3 8"/><path d="M14 10.4a3.6 3.6 0 0 0-5.4-.4l-2.4 2.4a3.6 3.6 0 0 0 5.1 5.1L12.7 16"/>',
+    // Exclamations
+    zap: '<path d="M13.4 2.6 4.6 13.4h6.2l-.6 8 8.8-10.8h-6.2z"/>',
+    // Counting
+    hash: '<path d="M5 9.2h14"/><path d="M5 15h14"/><path d="M10.4 3.6 8.6 20.4"/><path d="M15.9 3.6 14.1 20.4"/>',
+    // Whole utterances
+    message: '<path d="M20.5 12.4a7.6 7.6 0 0 1-8.2 7.6L4.5 21.2l1.2-6.4a7.6 7.6 0 1 1 14.8-2.4z"/><path d="M9 11h6"/><path d="M9 14.4h3.6"/>',
   };
 
   let mounted = false;
