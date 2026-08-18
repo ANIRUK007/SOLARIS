@@ -565,7 +565,7 @@
 
   function renderPrompt(animate) {
     const item = currentItem();
-    if (!item) return finish();
+    if (!item) return finish('completed');
 
     const card = $('promptCard');
     const paint = () => {
@@ -1055,7 +1055,7 @@
     G.takes = { bnj: null, tel: null };
     G.phase = 'bnj';
     G.index++;
-    if (G.index >= G.queue.length) finish();
+    if (G.index >= G.queue.length) finish('completed');
     else renderPrompt(true);
   }
 
@@ -1094,7 +1094,16 @@
   }
 
   // ── Finish ──────────────────────────────────────────────────────────────────
-  async function finish() {
+  /**
+   * End the sitting.
+   *
+   * @param {'completed'|'quit'} how  Whether every prompt was answered, or
+   *        the contributor closed the set part-way. Leaving early is a normal
+   *        thing to do — the phone rings, the speaker has to go — and it
+   *        should not be dressed up as an achievement. The work is saved
+   *        either way; only the celebration is earned.
+   */
+  async function finish(how = 'completed') {
     hideSheet();
     // A toast from the last action would land on top of the completion
     // screen's buttons.
@@ -1105,15 +1114,36 @@
     const skipped  = G.results.filter(r => r === 'skipped').length;
     const minutes  = Math.max(1, Math.round((Date.now() - G.startedAt) / 60000));
 
+    // The log is written either way: what was recorded belongs to the archive
+    // regardless of how the sitting ended.
+    const logging = writeSessionLog(recorded, skipped);
+
+    if (how === 'quit') {
+      G.doneSince = {};
+      await loadPacks();
+      show('portal');
+      toast(recorded
+        ? `Stopped — ${recorded} word${recorded === 1 ? '' : 's'} saved`
+        : 'Stopped — nothing recorded yet');
+      await logging;
+      return;
+    }
+
     $('statXp').textContent = G.xp;
     $('statRecorded').textContent = `${recorded}/${G.queue.length}`;
     $('statStreak').textContent = G.bestStreak;
     $('statTime').textContent = `${minutes}m`;
 
-    $('doneTitle').textContent = recorded === G.queue.length ? 'Perfect session!' : 'Session complete';
+    const setName = (G.pack && G.pack.name) || 'this set';
+    const setFinished = typeof G.pack?.remaining === 'number' &&
+      G.pack.remaining - (recorded + skipped) <= 0;
+
+    $('doneTitle').textContent = setFinished
+      ? `${setName} complete!`
+      : recorded === G.queue.length ? 'Every word recorded!' : 'Batch complete';
     $('doneSub').textContent = skipped
       ? `${recorded} recorded, ${skipped} marked as having no Banjara word.`
-      : 'Every word recorded and saved.';
+      : `${recorded} word${recorded === 1 ? '' : 's'} added to the archive.`;
 
     G.doneSince = {};
     loadPacks();            // re-read progress from the server
@@ -1122,7 +1152,7 @@
     blip('good');
     buzz([20, 60, 20, 60, 40]);
 
-    await writeSessionLog(recorded, skipped);
+    await logging;
 
     const pending = await SolarisStore.pending();
     const note = $('queueNote');
@@ -1193,8 +1223,11 @@
 
   function quit() {
     if (G.isRec) stopRecording();
-    if (G.index > 0 && !confirm('End this session? Words already recorded are saved.')) return;
-    finish();
+    const done = G.results.filter(Boolean).length;
+    if (done > 0 && !confirm('Stop here? The words you have recorded are saved.')) return;
+    // Closing part-way returns to the portal rather than the completion
+    // screen — nothing has been completed.
+    finish('quit');
   }
 
   // ── Wiring ──────────────────────────────────────────────────────────────────

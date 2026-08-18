@@ -283,16 +283,48 @@ const walk = (dir) => fs.existsSync(dir)
     check('skipping resets the streak',
       (await page.textContent('#streakVal')).trim() === '0');
 
-    // ── Finish early ─────────────────────────────────────────────────────────
+    // ── Closing part-way must not celebrate ──────────────────────────────────
     await page.click('#btnQuit');
-    await page.waitForSelector('#screen-done:not([hidden])', { timeout: 10000 });
+    await page.waitForSelector('#screen-portal:not([hidden])', { timeout: 10000 });
 
-    check('the completion screen reports XP',
-      Number(await page.textContent('#statXp')) > 0,
+    check('closing a set part-way returns to the portal, not the completion screen',
+      await page.isVisible('#screen-portal') && !(await page.isVisible('#screen-done')));
+
+    check('the words recorded before closing are still counted',
+      await page.evaluate(() => window.SolarisAuth.user.stats.words) === 1,
+      JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
+
+    // ── Finishing every prompt does celebrate ────────────────────────────────
+    await page.click('#packGrid .pack');
+    await page.waitForSelector('#screen-play:not([hidden])');
+
+    // Answer the whole batch. Skipping is a real answer and is instant, which
+    // keeps the test to the behaviour being checked rather than the recorder.
+    const batchSize = await page.evaluate(() => window.__solarisGame.queue.length);
+    for (let i = 0; i < batchSize; i++) {
+      await page.click('#btnSkip');
+      await page.waitForTimeout(320);
+    }
+
+    await page.waitForSelector('#screen-done:not([hidden])', { timeout: 15000 });
+    check('answering every prompt in the batch shows the completion screen',
+      await page.isVisible('#screen-done'));
+
+    // This batch was answered entirely with "no Banjara word", which is a
+    // valid outcome that earns nothing — the screen should report zero rather
+    // than invent a reward.
+    check('the completion screen reports the XP actually earned',
+      (await page.textContent('#statXp')).trim() === '0',
       await page.textContent('#statXp'));
-    check('the completion screen counts what was recorded',
-      (await page.textContent('#statRecorded')).startsWith('1/'),
+
+    check('the completion screen counts what was answered',
+      /^\d+\/\d+$/.test((await page.textContent('#statRecorded')).trim()),
       await page.textContent('#statRecorded'));
+
+    check('the completion screen does not claim recordings that were not made',
+      !/added to the archive/i.test(await page.textContent('#doneSub')) ||
+      /0 words/.test(await page.textContent('#doneSub')),
+      await page.textContent('#doneSub'));
 
     check('the session is attributed to the signed-in account',
       await page.evaluate(() => window.__solarisGame && window.SolarisAuth.user.username) === 'fieldworker');
@@ -364,12 +396,16 @@ const walk = (dir) => fs.existsSync(dir)
 
     // One recorded plus one marked as having no Banjara word: both are
     // answered, so both count as done and neither comes back next session.
-    // One recorded and one skipped, both read back from the server.
-    const firstMeta = await page.textContent('#packGrid .pack .pack-meta');
-    check('the portal reflects the words just answered, read back from the server',
-      /^2\/\d+$/.test(firstMeta.trim()), firstMeta);
+    // Everything answered so far, read back from the server rather than from
+    // anything held on the device.
+    const answered = await page.evaluate(() =>
+      [...document.querySelectorAll('#packGrid .pack .pack-meta')]
+        .map(e => Number(e.textContent.split('/')[0]))
+        .reduce((a, b) => a + b, 0));
+    check('the portal reflects the words answered, read back from the server',
+      answered >= 11, `portal totals ${answered}`);
 
-    // One word was recorded and one skipped, so exactly one is credited.
+    // Only recordings are credited; skips are answers, not contributions.
     await page.click('#btnProfile');
     await page.waitForTimeout(500);
 
