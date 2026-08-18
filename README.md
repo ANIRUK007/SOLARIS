@@ -69,8 +69,8 @@ mkcert -key-file certs/key.pem -cert-file certs/cert.pem localhost 192.168.1.42
 open  ─►  sign in / sign up      every recording is attributed to an account
           │
           ▼
-       portal                    level, an XP loader filled by words
-          │                      contributed, a streak, and a card per word set
+       portal                    a card per word set, with the streak and
+          │                      the profile drawer in the header
           ▼
        session                   one Telugu prompt at a time, recorded in
           │                      Banjara, graded on the spot
@@ -91,9 +91,18 @@ rather than starting over. A word marked "no Banjara word for this" counts as an
 that a Telugu concept has no Banjara equivalent is a finding, and it is kept in the session
 log rather than silently dropped.
 
-XP is earned per word contributed. Opening a word set earns nothing on its own and no session
-tally is kept: the numbers that move are words, XP and the streak, and the streak carries
-across sittings rather than resetting when the phone is put down.
+XP is credited the moment each word is saved, not when a set is finished — someone who
+records two words and puts the phone down has still contributed two words, and the archive
+has them either way. The server computes the award from the recording's quality score rather
+than accepting a number from the client, and caps it, so the figure on screen means something.
+
+Opening a word set earns nothing on its own and no session tally is kept: the numbers that
+move are words, XP and the streak, and the streak carries across sittings.
+
+Tapping the avatar slides in the profile: the XP loader and level, words, current and best
+streak, and per-set progress. It is reference rather than a step in the flow, so it arrives
+over the portal instead of navigating away from it. Tap outside, press Escape, or swipe it
+right to dismiss.
 
 ## Accounts
 

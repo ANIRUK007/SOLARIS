@@ -60,7 +60,10 @@
 <!-- ══ PORTAL ═════════════════════════════════════════════════════════════ -->
 <section class="screen scrolls" id="screen-portal" hidden>
   <header class="portal-top">
-    <div class="avatar" id="userAvatar">?</div>
+    <button class="avatar" id="btnProfile" type="button" aria-label="Your profile" aria-haspopup="dialog">
+      <span id="userAvatar">?</span>
+      <span class="avatar-ring" id="avatarRing" aria-hidden="true"></span>
+    </button>
     <div class="who">
       <div class="who-name" id="userName">—</div>
       <div class="who-lvl" id="userLevel">Level 1</div>
@@ -68,28 +71,11 @@
     <div class="streak-pill" id="portalStreak" title="Words in a row">
       <span class="flame">🔥</span><span id="portalStreakVal">0</span>
     </div>
-    <button class="icon-btn" id="btnSignOut" type="button" aria-label="Sign out" title="Sign out">⏻</button>
   </header>
 
   <div class="portal-body">
-    <!-- XP toward the next level, earned per word contributed -->
-    <div class="card level-card">
-      <div class="level-row">
-        <span class="level-badge" id="levelBadge">1</span>
-        <div class="level-bar-wrap">
-          <div class="level-meta">
-            <span id="xpNow">0 XP</span>
-            <span id="xpNext">120 XP to level 2</span>
-          </div>
-          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
-          <div class="level-sub"><span id="wordsDone">0 words</span> contributed</div>
-        </div>
-      </div>
-    </div>
-
     <h2 class="section-title">Word sets</h2>
     <div class="pack-grid" id="packGrid"></div>
-
     <div class="queue-note" id="portalQueue" hidden></div>
   </div>
 </section>
@@ -152,6 +138,50 @@
     <button class="btn btn-primary" id="btnHome" type="button">Back to Word Sets</button>
   </div>
 </section>
+
+<!-- ══ PROFILE DRAWER ═════════════════════════════════════════════════════ -->
+<div class="scrim" id="drawerScrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Your profile" hidden>
+  <div class="drawer-head">
+    <div class="avatar lg" id="drawerAvatar">?</div>
+    <div class="who">
+      <div class="who-name" id="drawerName">—</div>
+      <div class="who-lvl" id="drawerHandle">@—</div>
+    </div>
+    <button class="icon-btn" id="btnCloseDrawer" type="button" aria-label="Close">✕</button>
+  </div>
+
+  <div class="drawer-body">
+    <!-- XP toward the next level, filled by words contributed -->
+    <div class="card level-card">
+      <div class="level-row">
+        <span class="level-badge" id="levelBadge">1</span>
+        <div class="level-bar-wrap">
+          <div class="level-meta">
+            <span id="xpNow">0 XP</span>
+            <span id="xpNext">120 XP to level 2</span>
+          </div>
+          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile-row">
+      <div class="tile"><span class="tile-v" id="wordsDone">0</span><span class="tile-k">Words</span></div>
+      <div class="tile"><span class="tile-v" id="drawerStreak">0</span><span class="tile-k">Streak</span></div>
+      <div class="tile"><span class="tile-v" id="drawerBest">0</span><span class="tile-k">Best</span></div>
+    </div>
+
+    <div class="card contrib-card">
+      <div class="card-label">Your sets</div>
+      <div id="drawerSets"></div>
+    </div>
+  </div>
+
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" id="btnSignOut" type="button">Sign out</button>
+  </div>
+</aside>
 
 <!-- Feedback sheet, shared by all verdicts -->
 <div class="sheet" id="sheet">

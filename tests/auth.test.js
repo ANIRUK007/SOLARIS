@@ -123,26 +123,46 @@ test('the public profile never exposes the hash or salt', () => {
   assert.ok(!('hash' in pub) && !('salt' in pub), JSON.stringify(pub));
 });
 
-test('contributions accumulate into lifetime stats and a level', () => {
+test('one contributed word counts immediately', () => {
+  const a = freshAuth('oneword');
+  a.register({ username: 'ravi', password: 'correcthorse' });
+
+  const { profile, xp } = a.recordWord('ravi', { score: 100, streak: 1 });
+  assert.strictEqual(profile.stats.words, 1, 'a single word did not register');
+  assert.ok(xp > 0, 'no XP was awarded');
+  assert.strictEqual(profile.stats.xp, xp);
+});
+
+test('contributions accumulate word by word', () => {
   const a = freshAuth('stats');
   a.register({ username: 'ravi', password: 'correcthorse' });
 
-  a.recordSession('ravi', { xp: 200, words: 12, streak: 5 });
-  a.recordSession('ravi', { xp: 100, words: 6, streak: 7 });
+  let total = 0;
+  for (let i = 1; i <= 5; i++) total += a.recordWord('ravi', { score: 80, streak: i }).xp;
 
   const pub = a.publicUser('ravi');
-  assert.strictEqual(pub.stats.xp, 300);
-  assert.strictEqual(pub.stats.words, 18);
-  assert.strictEqual(pub.level, levelFor(300));
-  assert.strictEqual(pub.stats.streak, 7, 'the current streak should be the latest one');
-  assert.strictEqual(pub.stats.bestStreak, 7);
+  assert.strictEqual(pub.stats.words, 5);
+  assert.strictEqual(pub.stats.xp, total);
+  assert.strictEqual(pub.level, levelFor(total));
+  assert.strictEqual(pub.stats.streak, 5);
 });
 
-test('opening a word set is not counted as anything on its own', () => {
+test('XP per word is computed by the server, within a fixed range', () => {
+  const a = freshAuth('xprange');
+  a.register({ username: 'ravi', password: 'correcthorse' });
+
+  // A client claiming an enormous score or streak cannot inflate the award.
+  const wild = a.recordWord('ravi', { score: 99999, streak: 99999 });
+  assert.ok(wild.xp <= 25, `awarded ${wild.xp} XP for a bogus claim`);
+
+  const floorAward = a.recordWord('ravi', { score: 0, streak: 0 });
+  assert.ok(floorAward.xp >= 10, `awarded only ${floorAward.xp} XP for a valid word`);
+});
+
+test('opening and closing a word set with nothing recorded counts for nothing', () => {
   const a = freshAuth('nosessions');
   a.register({ username: 'ravi', password: 'correcthorse' });
-  // Nothing contributed: the totals must not move, and no session tally exists.
-  a.recordSession('ravi', { xp: 0, words: 0, streak: 0 });
+  a.recordSession('ravi', { streak: 0 });
 
   const pub = a.publicUser('ravi');
   assert.strictEqual(pub.stats.words, 0);
@@ -150,19 +170,34 @@ test('opening a word set is not counted as anything on its own', () => {
   assert.ok(!('sessions' in pub.stats), 'sessions are still being counted');
 });
 
+test('finishing a set does not double-count the words already credited', () => {
+  const a = freshAuth('nodouble');
+  a.register({ username: 'ravi', password: 'correcthorse' });
+
+  a.recordWord('ravi', { score: 90, streak: 1 });
+  a.recordWord('ravi', { score: 90, streak: 2 });
+  const afterWords = a.publicUser('ravi').stats;
+
+  a.recordSession('ravi', { streak: 2 });
+  const afterSession = a.publicUser('ravi').stats;
+
+  assert.strictEqual(afterSession.words, afterWords.words, 'words were counted twice');
+  assert.strictEqual(afterSession.xp, afterWords.xp, 'XP was counted twice');
+});
+
 test('a streak survives between sittings and only resets when told to', () => {
   const a = freshAuth('streaks');
   a.register({ username: 'ravi', password: 'correcthorse' });
 
-  a.recordSession('ravi', { xp: 40, words: 3, streak: 3 });
+  a.recordSession('ravi', { streak: 3 });
   assert.strictEqual(a.publicUser('ravi').stats.streak, 3);
 
   // A sitting that reports no streak change leaves it standing.
-  a.recordSession('ravi', { xp: 10, words: 1 });
+  a.recordSession('ravi', {});
   assert.strictEqual(a.publicUser('ravi').stats.streak, 3, 'the streak was dropped without being told to');
 
   // A broken streak comes back as 0, but the best is remembered.
-  a.recordSession('ravi', { xp: 10, words: 1, streak: 0 });
+  a.recordSession('ravi', { streak: 0 });
   assert.strictEqual(a.publicUser('ravi').stats.streak, 0);
   assert.strictEqual(a.publicUser('ravi').stats.bestStreak, 3);
 });
@@ -284,6 +319,11 @@ function savePayload() {
     save = await fetch(BASE + '/save', { method: 'POST', body: savePayload(), headers: { Authorization: 'Bearer ' + token } });
     check('a signed-in write succeeds', save.status === 200, `status ${save.status}`);
 
+    const saved = await save.clone().json().catch(() => ({}));
+    check('saving one word credits it straight away',
+      saved.profile && saved.profile.stats.words === 1 && saved.xp > 0,
+      JSON.stringify({ xp: saved.xp, stats: saved.profile && saved.profile.stats }));
+
     // Provenance must come from the token, not from the client's claim.
     const metaPath = path.join(DATASET, 'speakers', 'SPK900', 'sessions', 'session_01', 'amma', 'session.json');
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -318,12 +358,12 @@ function savePayload() {
       name: 'session_01_log.json',
       log: { xp: 240, streak: 4, totals: { recorded: 9 } },
     }, token);
-    check('the session log is accepted and returns an updated profile',
-      log.status === 200 && log.body.profile && log.body.profile.stats.xp === 240,
-      JSON.stringify(log.body.profile && log.body.profile.stats));
+    check('the session log is accepted and returns the profile',
+      log.status === 200 && !!log.body.profile,
+      JSON.stringify(log.body));
 
     check('the profile counts words contributed, not sessions opened',
-      log.body.profile && log.body.profile.stats.words === 9 && !('sessions' in log.body.profile.stats),
+      log.body.profile && !('sessions' in log.body.profile.stats),
       JSON.stringify(log.body.profile && log.body.profile.stats));
 
     const logAnon = await api.post('/api/session-log', { folder: 'x', name: 'y.json', log: {} });

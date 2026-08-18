@@ -132,7 +132,9 @@
       catch { throw new Error('Server response was not JSON: ' + raw.slice(0, 200)); }
       if (!data.success) throw new Error(data.error || 'Unknown server error');
 
-      return { savedTo: data.savedTo, files: data.files };
+      // The server credits the contribution and hands back the updated
+      // profile, so the caller can show it without another round trip.
+      return { savedTo: data.savedTo, files: data.files, profile: data.profile, xp: data.xp };
     },
   };
 
@@ -177,7 +179,7 @@
 
     try {
       const res = await backend.put(record);
-      return { queued: false, savedTo: res.savedTo, files: res.files };
+      return { queued: false, savedTo: res.savedTo, files: res.files, profile: res.profile, xp: res.xp };
     } catch (err) {
       // Only queue when it looks like a transport problem. A 400 from the
       // server means this record is malformed and retrying cannot fix it.

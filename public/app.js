@@ -154,6 +154,7 @@
   }
 
   function signOut() {
+    closeDrawer();
     SolarisAuth.logout();
     authMode = 'login';
     paintAuthMode();
@@ -223,7 +224,14 @@
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
       card.querySelector('.pack-fill').style.width = pct + '%';
-      card.querySelector('.pack-meta').textContent = `${done}/${pack.count}`;
+      const meta = card.querySelector('.pack-meta');
+      const next = `${done}/${pack.count}`;
+      if (meta.textContent !== next) {
+        meta.textContent = next;
+        meta.classList.remove('bumped');
+        void meta.offsetWidth;
+        meta.classList.add('bumped');
+      }
       card.querySelector('.pack-go').textContent = pct >= 100 ? '✓' : '›';
       card.classList.toggle('complete', pct >= 100);
       card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
@@ -242,7 +250,7 @@
       return;
     }
 
-    for (const pack of packs) {
+    packs.forEach((pack, index) => {
       const done = Object.keys(packProgress(pack.id)).length;
       const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
 
@@ -263,9 +271,11 @@
         </span>
         <span class="pack-go">${pct >= 100 ? '✓' : '›'}</span>`;
 
+      card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
+      card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
       card.addEventListener('click', () => openPack(pack, card));
       grid.appendChild(card);
-    }
+    });
   }
 
   function escapeHtml(str) {
@@ -274,31 +284,93 @@
     ));
   }
 
-  function paintPortal() {
+  function paintProfile() {
     const user = SolarisAuth.user;
-    if (user) {
-      $('userAvatar').textContent = (user.displayName || user.username).trim().charAt(0) || '?';
-      $('userName').textContent = user.displayName || user.username;
-      $('userLevel').textContent = `Level ${user.level}`;
-      $('levelBadge').textContent = user.level;
+    if (!user) return;
 
-      const floor = xpForLevel(user.level);
-      const ceiling = xpForLevel(user.level + 1);
-      const into = Math.max(0, user.stats.xp - floor);
-      const span = Math.max(1, ceiling - floor);
+    const initial = (user.displayName || user.username).trim().charAt(0) || '?';
+    $('userAvatar').textContent = initial;
+    $('drawerAvatar').textContent = initial;
+    $('userName').textContent = user.displayName || user.username;
+    $('drawerName').textContent = user.displayName || user.username;
+    $('drawerHandle').textContent = '@' + user.username;
+    $('userLevel').textContent = `Level ${user.level}`;
+    $('levelBadge').textContent = user.level;
 
-      $('xpNow').textContent = `${user.stats.xp} XP`;
-      $('xpNext').textContent = `${Math.max(0, ceiling - user.stats.xp)} XP to level ${user.level + 1}`;
-      $('levelFill').style.width = Math.min(100, (into / span) * 100) + '%';
+    const floor = xpForLevel(user.level);
+    const ceiling = xpForLevel(user.level + 1);
+    const into = Math.max(0, user.stats.xp - floor);
+    const span = Math.max(1, ceiling - floor);
 
-      $('wordsDone').textContent = `${user.stats.words} word${user.stats.words === 1 ? '' : 's'}`;
-      $('portalStreakVal').textContent = user.stats.streak || 0;
-      $('portalStreak').classList.toggle('cold', !user.stats.streak);
+    $('xpNow').textContent = `${user.stats.xp} XP`;
+    $('xpNext').textContent = `${Math.max(0, ceiling - user.stats.xp)} XP to level ${user.level + 1}`;
+    $('levelFill').style.width = Math.min(100, (into / span) * 100) + '%';
+
+    $('wordsDone').textContent = user.stats.words;
+    $('drawerStreak').textContent = user.stats.streak || 0;
+    $('drawerBest').textContent = user.stats.bestStreak || 0;
+
+    $('portalStreakVal').textContent = user.stats.streak || 0;
+    $('portalStreak').classList.toggle('cold', !user.stats.streak);
+  }
+
+  /** Per-set totals, listed in the profile drawer. */
+  function paintDrawerSets() {
+    const box = $('drawerSets');
+    box.innerHTML = '';
+
+    for (const pack of packs) {
+      const done = Object.keys(packProgress(pack.id)).length;
+      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
+
+      const row = document.createElement('div');
+      row.className = 'contrib-row';
+      row.innerHTML = `
+        <span class="contrib-name">${escapeHtml(pack.name)}</span>
+        <span class="contrib-bar"><span class="contrib-fill" style="width:${pct}%"></span></span>
+        <span class="contrib-count">${done}/${pack.count}</span>`;
+      box.appendChild(row);
     }
+  }
 
+  function paintPortal() {
+    paintProfile();
     if ($('packGrid').children.length) refreshPackProgress();
     else renderPacks();
     refreshQueue();
+  }
+
+  // ── Profile drawer ──────────────────────────────────────────────────────────
+  let drawerOpen = false;
+
+  function openDrawer() {
+    if (drawerOpen) return;
+    drawerOpen = true;
+
+    paintProfile();
+    paintDrawerSets();
+
+    $('drawerScrim').hidden = false;
+    $('drawer').hidden = false;
+    // A frame between unhiding and animating, or the transition never runs.
+    requestAnimationFrame(() => {
+      $('drawerScrim').classList.add('show');
+      $('drawer').classList.add('show');
+    });
+    $('btnCloseDrawer').focus();
+  }
+
+  function closeDrawer() {
+    if (!drawerOpen) return;
+    drawerOpen = false;
+
+    $('drawerScrim').classList.remove('show');
+    $('drawer').classList.remove('show');
+    setTimeout(() => {
+      $('drawerScrim').hidden = true;
+      $('drawer').hidden = true;
+    }, 360);
+    $('btnProfile').focus();
   }
 
   /** Mirrors the server's curve so the portal can draw a progress bar without
@@ -866,7 +938,15 @@
     G.busy = true;
     try {
       const res = await SolarisStore.save(record);
-      if (res.queued) toast('Saved on this device — will upload later');
+      if (res.queued) {
+        toast('Saved on this device — will upload later');
+      } else if (res.profile) {
+        // Credited word by word, so a contributor who records one word and
+        // stops still sees it counted.
+        SolarisAuth.updateUser(res.profile);
+        celebrateXp(res.xp);
+        paintProfile();
+      }
     } catch (err) {
       console.error('[SAVE]', err);
       toast('Save failed: ' + err.message, 3600);
@@ -913,6 +993,31 @@
     if (!note) return;
     note.hidden = n === 0;
     if (n) note.textContent = `${n} session(s) waiting to upload. They send automatically once the server is reachable.`;
+  }
+
+  /** A floating +XP over the record button, a ring around the avatar, and a
+   *  nudge on the level bar. Progress should be felt where it happened. */
+  function celebrateXp(xp) {
+    if (!xp) return;
+
+    const anchor = $('btnRecord').getBoundingClientRect();
+    const float = document.createElement('div');
+    float.className = 'xp-float';
+    float.textContent = `+${xp} XP`;
+    float.style.left = `${anchor.left + anchor.width / 2}px`;
+    float.style.top = `${anchor.top - 8}px`;
+    document.body.appendChild(float);
+    setTimeout(() => float.remove(), 1300);
+
+    const avatar = $('btnProfile');
+    avatar.classList.remove('pulse');
+    void avatar.offsetWidth;          // restart the animation
+    avatar.classList.add('pulse');
+
+    const fill = $('levelFill');
+    fill.classList.remove('bumped');
+    void fill.offsetWidth;
+    fill.classList.add('bumped');
   }
 
   // ── Finish ──────────────────────────────────────────────────────────────────
@@ -1028,6 +1133,19 @@
     });
     $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
     $('btnSignOut').addEventListener('click', signOut);
+    $('btnProfile').addEventListener('click', openDrawer);
+    $('btnCloseDrawer').addEventListener('click', closeDrawer);
+    $('drawerScrim').addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawerOpen) closeDrawer(); });
+
+    // Swiping the drawer to the right should dismiss it, the way a sheet does.
+    let swipeFrom = null;
+    $('drawer').addEventListener('touchstart', (e) => { swipeFrom = e.touches[0].clientX; }, { passive: true });
+    $('drawer').addEventListener('touchend', (e) => {
+      if (swipeFrom === null) return;
+      if (e.changedTouches[0].clientX - swipeFrom > 70) closeDrawer();
+      swipeFrom = null;
+    }, { passive: true });
 
     $('btnRecord').addEventListener('click', toggleRecord);
     $('btnSkip').addEventListener('click', skipWord);

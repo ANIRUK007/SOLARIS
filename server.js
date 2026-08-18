@@ -368,6 +368,8 @@ async function handleSave(req, res, username) {
     written.push(path.basename(target));
   }
 
+  let parsedMeta = null;
+
   const metaPart = get('metadata');
   if (metaPart) {
     // Stamp the signed-in user server-side. Provenance the client could edit
@@ -377,15 +379,28 @@ async function handleSave(req, res, username) {
     catch { meta = { raw: metaPart.data.toString('utf8') }; }
     meta.recordedBy = username || null;
     meta.receivedAt = new Date().toISOString();
+    parsedMeta = meta;
 
     const metaPath = path.join(saveDir, 'session.json');
     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
     written.push('session.json');
   }
 
-  console.log(`[SAVED] ${saveDir} (${written.length} files)`);
+  // Credit the contribution now, not when the set is finished.
+  let profile = null;
+  let awarded = 0;
+  if (username) {
+    const scores = (parsedMeta && parsedMeta.scores) || {};
+    const credit = auth.recordWord(username, {
+      score: scores.banjara,
+      streak: parsedMeta && parsedMeta.streak,
+    });
+    if (credit) { profile = credit.profile; awarded = credit.xp; }
+  }
 
-  sendJSON(res, 200, { success: true, savedTo: saveDir, files: written });
+  console.log(`[SAVED] ${saveDir} (${written.length} files)${awarded ? ` +${awarded} XP` : ''}`);
+
+  sendJSON(res, 200, { success: true, savedTo: saveDir, files: written, profile, xp: awarded });
 }
 
 // ── Session log ───────────────────────────────────────────────────────────────
@@ -421,11 +436,7 @@ async function handleSessionLog(req, res, username) {
   // completion screen can show a level rather than just one session's XP.
   let profile = null;
   if (username) {
-    profile = auth.recordSession(username, {
-      xp: log.xp,
-      words: log.totals && log.totals.recorded,
-      streak: log.streak,
-    });
+    profile = auth.recordSession(username, { streak: log.streak });
   }
 
   console.log(`[LOG] ${target}`);

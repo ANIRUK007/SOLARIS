@@ -669,8 +669,10 @@ body::after {
 }
 
 .avatar {
-  width: 48px; height: 48px;
+  position: relative;
+  width: 50px; height: 50px;
   flex-shrink: 0;
+  border: none;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -680,6 +682,27 @@ body::after {
   background: linear-gradient(180deg, var(--gold-2), var(--gold));
   box-shadow: 0 4px 0 var(--gold-d), 0 8px 20px -8px rgba(255, 201, 60, .7);
   text-transform: uppercase;
+  cursor: pointer;
+  transition: transform .12s cubic-bezier(.2, 1.6, .4, 1);
+}
+.avatar:active { transform: scale(.92); }
+.avatar.lg { width: 62px; height: 62px; font-size: 25px; cursor: default; }
+
+/* A ring that pulses once when XP lands, so progress is felt on the portal
+   without opening the profile. */
+.avatar-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--lime);
+  opacity: 0;
+  pointer-events: none;
+}
+.avatar.pulse .avatar-ring { animation: ringPop .75s cubic-bezier(.22, 1, .36, 1); }
+@keyframes ringPop {
+  0%   { opacity: .95; transform: scale(.82); }
+  70%  { opacity: .35; transform: scale(1.22); }
+  100% { opacity: 0;   transform: scale(1.35); }
 }
 .who { flex: 1; min-width: 0; }
 .who-name {
@@ -861,3 +884,143 @@ body::after {
 
 /* A set whose words are still being fetched. */
 .pack.loading { opacity: .55; pointer-events: none; }
+
+/* ── PROFILE DRAWER ────────────────────────────────────────────────────────── */
+/* Slides in from the right over the portal. The profile is reference, not a
+   step in the flow, so it should not take the operator off the screen they
+   are working on. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(5, 2, 14, .68);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.scrim.show { opacity: 1; }
+.scrim[hidden] { display: none; }
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 51;
+  width: min(400px, 88vw);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(190deg, #2a1552, var(--bg-1) 60%, var(--bg-0));
+  border-left: var(--bd-hi) solid var(--bg-3);
+  box-shadow: -24px 0 60px -20px #000;
+  transform: translateX(102%);
+  transition: transform .36s cubic-bezier(.22, 1, .36, 1);
+  padding: calc(14px + var(--safe-t)) calc(16px + var(--safe-r)) calc(14px + var(--safe-b)) 16px;
+}
+.drawer.show { transform: translateX(0); }
+.drawer[hidden] { display: none; }
+
+.drawer-head { display: flex; align-items: center; gap: 13px; padding-bottom: 18px; flex-shrink: 0; }
+.drawer-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.drawer-foot { flex-shrink: 0; padding-top: 14px; }
+
+/* Contents stagger in behind the panel, so it arrives as one motion. */
+.drawer.show .drawer-body > * {
+  animation: driftIn .42s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+.drawer.show .drawer-body > *:nth-child(1) { animation-delay: .08s; }
+.drawer.show .drawer-body > *:nth-child(2) { animation-delay: .14s; }
+.drawer.show .drawer-body > *:nth-child(3) { animation-delay: .2s; }
+@keyframes driftIn {
+  from { opacity: 0; transform: translateX(22px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.tile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tile {
+  background: rgba(0, 0, 0, .3);
+  border: var(--bd) solid var(--bg-3);
+  border-radius: var(--r-sm);
+  padding: 14px 8px;
+  text-align: center;
+}
+.tile-v { display: block; font-family: var(--mono); font-size: 21px; font-weight: 800; color: var(--text); }
+.tile-k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 5px;
+}
+
+.contrib-card .card-label { margin-bottom: 12px; }
+.contrib-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--bg-3);
+}
+.contrib-row:first-of-type { border-top: none; }
+.contrib-name { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contrib-count { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text-3); }
+.contrib-bar { width: 62px; height: 6px; background: var(--well); border-radius: 99px; overflow: hidden; flex-shrink: 0; }
+.contrib-fill { display: block; height: 100%; border-radius: 99px; background: var(--lime); transition: width .5s cubic-bezier(.22, 1, .36, 1); }
+
+/* ── MOTION ────────────────────────────────────────────────────────────────── */
+/* Cards deal in one at a time on arrival rather than appearing as a block. */
+.pack {
+  animation: dealIn .44s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+@keyframes dealIn {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The count flashes when it changes, so a contribution is visibly banked. */
+.pack-meta.bumped { animation: bump .5s cubic-bezier(.2, 1.6, .4, 1); color: var(--lime); }
+@keyframes bump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.level-fill.bumped { animation: glowPulse .8s ease; }
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(43, 232, 107, .65); }
+  45%      { box-shadow: 0 0 26px rgba(43, 232, 107, 1); }
+}
+
+/* A floating +XP that rises and fades where the contribution happened. */
+.xp-float {
+  position: fixed;
+  z-index: 80;
+  font-family: var(--mono);
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--gold);
+  text-shadow: 0 2px 12px rgba(255, 201, 60, .8);
+  pointer-events: none;
+  animation: rise 1.15s cubic-bezier(.22, 1, .36, 1) forwards;
+}
+@keyframes rise {
+  0%   { opacity: 0; transform: translate(-50%, 0) scale(.6); }
+  25%  { opacity: 1; transform: translate(-50%, -18px) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(1); }
+}
+
+/* Screens fade through rather than cutting. */
+.screen:not([hidden]) { animation: screenIn .3s ease; }
+@keyframes screenIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── WIDER SCREENS ─────────────────────────────────────────────────────────── */
+@media (min-width: 900px) {
+  .portal-body { max-width: 880px; margin: 0 auto; width: 100%; }
+  .pack-grid { grid-template-columns: 1fr 1fr; }
+  .screen { max-width: 100%; padding-left: 32px; padding-right: 32px; }
+  .portal-top { max-width: 880px; margin: 0 auto; width: 100%; }
+}

@@ -158,19 +158,49 @@ class Auth {
   }
 
   /**
+   * Credit one contributed word, the moment it lands.
+   *
+   * Crediting at the end of a set would mean a contributor who records two
+   * words and puts the phone down gets nothing, which is both discouraging
+   * and untrue — the archive has their two words either way.
+   *
+   * The XP is computed here rather than accepted from the client. It is only
+   * a game score on a trusted network, but a number the client can set is not
+   * a number worth showing.
+   */
+  recordWord(name, { score = 0, streak = 0 } = {}) {
+    const u = this.data.users[name];
+    if (!u) return null;
+    this._normaliseStats(u);
+
+    const quality = Math.max(0, Math.min(100, Number(score) || 0));
+    const run = Math.max(0, Math.min(5, Math.round(Number(streak) || 0)));
+    const xp = 10 + Math.round(quality / 10) + run;      // 10-25
+
+    u.stats.words += 1;
+    u.stats.xp += xp;
+    u.stats.streak = Math.max(0, Math.round(Number(streak) || 0));
+    u.stats.bestStreak = Math.max(u.stats.bestStreak || 0, u.stats.streak);
+    u.stats.lastContributionAt = new Date().toISOString();
+
+    this._save();
+    return { profile: this.publicUser(name), xp };
+  }
+
+  /**
    * Roll a finished session into the user's lifetime totals.
    *
    * `streak` is the run of good takes as it stood at the end of the session,
    * carried forward rather than reset, so a streak survives putting the phone
    * down. Opening a word set adds nothing on its own.
    */
-  recordSession(name, { xp = 0, words = 0, streak = null } = {}) {
+  recordSession(name, { streak = null } = {}) {
     const u = this.data.users[name];
     if (!u) return null;
+    this._normaliseStats(u);
 
-    u.stats.xp += Math.max(0, Math.round(xp));
-    u.stats.words += Math.max(0, Math.round(words));
-
+    // Words and XP are credited per word as they land, not here — otherwise
+    // finishing a set would count everything twice.
     if (streak !== null && streak !== undefined) {
       u.stats.streak = Math.max(0, Math.round(streak));
       u.stats.bestStreak = Math.max(u.stats.bestStreak || 0, u.stats.streak);

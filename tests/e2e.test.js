@@ -127,13 +127,43 @@ const walk = (dir) => fs.existsSync(dir)
     check('the portal greets the user by display name',
       (await page.textContent('#userName')).includes('Field Worker'),
       await page.textContent('#userName'));
-    check('the portal shows a starting level and an empty XP loader',
-      (await page.textContent('#levelBadge')).trim() === '1' &&
-      (await page.textContent('#xpNow')).includes('0 XP') &&
-      (await page.textContent('#wordsDone')).includes('0 word'),
-      `${await page.textContent('#levelBadge')} / ${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')}`);
+    check('the portal shows the level beside the name',
+      (await page.textContent('#userLevel')).includes('Level 1'),
+      await page.textContent('#userLevel'));
 
     check('the streak sits at the top with its flame', await page.isVisible('#portalStreak'));
+
+    // Containment, not visibility: a bar at 0% has no size and would read as
+    // hidden wherever it sat.
+    check('the progress bar is not on the portal — it lives in the profile',
+      await page.evaluate(() => !document.querySelector('#screen-portal #levelFill')));
+
+    // ── Profile drawer ───────────────────────────────────────────────────────
+    await page.click('#btnProfile');
+    await page.waitForTimeout(500);
+
+    check('tapping the avatar slides the profile in', await page.isVisible('#drawer'));
+    check('the profile carries the XP loader',
+      await page.evaluate(() => !!document.querySelector('#drawer #levelFill')) &&
+      (await page.textContent('#xpNow')).includes('0 XP') &&
+      (await page.textContent('#wordsDone')).trim() === '0',
+      `${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')}`);
+
+    const drawerIn = await page.evaluate(() => {
+      const d = document.querySelector('#drawer').getBoundingClientRect();
+      return d.right <= window.innerWidth + 1 && d.left >= -1;
+    });
+    check('the drawer sits fully within the viewport', drawerIn);
+
+    check('the profile lists every word set',
+      await page.evaluate(() => document.querySelectorAll('#drawerSets .contrib-row').length) === 6);
+
+    await page.screenshot({ path: path.join(SHOTS, '02b-profile.png') });
+
+    // Tapping the scrim dismisses it, the way a drawer should.
+    await page.click('#drawerScrim', { position: { x: 20, y: 300 } });
+    await page.waitForTimeout(500);
+    check('tapping outside closes the drawer', !(await page.isVisible('#drawer')));
 
     check('there is no separate speaker field — the contributor is the account',
       await page.evaluate(() => !document.querySelector('#portal-speaker')));
@@ -324,18 +354,26 @@ const walk = (dir) => fs.existsSync(dir)
       /^2\/4$/.test((await page.textContent('#packGrid .pack .pack-meta')).trim()),
       await page.textContent('#packGrid .pack .pack-meta'));
 
-    check('the XP loader moved with the words contributed',
+    // One word was recorded and one skipped, so exactly one is credited.
+    await page.click('#btnProfile');
+    await page.waitForTimeout(500);
+
+    check('the XP loader moved with the word contributed',
       !/^0 XP$/.test((await page.textContent('#xpNow')).trim()) &&
-      !/^0 words?$/.test((await page.textContent('#wordsDone')).trim()),
-      `${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')}`);
+      (await page.textContent('#wordsDone')).trim() === '1',
+      `${await page.textContent('#xpNow')} / ${await page.textContent('#wordsDone')} words`);
+
+    check('a single contributed word is enough to register',
+      await page.evaluate(() => window.SolarisAuth.user.stats.words) === 1,
+      JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
+
+    await page.screenshot({ path: path.join(SHOTS, '07-profile-after.png') });
+    await page.click('#btnCloseDrawer');
+    await page.waitForTimeout(450);
 
     check('opening a word set was not counted as a session',
       await page.evaluate(() => !('sessions' in window.SolarisAuth.user.stats)),
       JSON.stringify(await page.evaluate(() => window.SolarisAuth.user.stats)));
-
-    check('the streak at the top reflects the words recorded',
-      Number(await page.textContent('#portalStreakVal')) >= 0,
-      await page.textContent('#portalStreakVal'));
 
     await page.screenshot({ path: path.join(SHOTS, '06-portal-after.png'), fullPage: true });
 
