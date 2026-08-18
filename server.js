@@ -21,6 +21,7 @@
 
 const { Auth, levelFor, xpForLevel } = require('./auth.js');
 const { Words } = require('./words.js');
+const { open: openDb } = require('./db.js');
 
 const http  = require('http');
 const https = require('https');
@@ -55,16 +56,17 @@ const SSL_KEY  = process.env.SSL_KEY  || path.join(__dirname, 'certs', 'key.pem'
 
 const MAX_BODY_BYTES = 60 * 1024 * 1024;   // one session is a few hundred KB; this is slack
 
-// Accounts live next to the server, not in the dataset — the dataset gets
-// copied around and shared, and password hashes should not travel with it.
-const auth = new Auth(process.env.SOLARIS_USERS_FILE || path.join(__dirname, '.solaris-users.json'));
-
-// The prompt database, and the index of who has recorded what. The index is
-// derived data: the recordings themselves are the archive.
-const words = new Words({
-  dataFile: process.env.SOLARIS_WORDS_FILE || path.join(__dirname, 'data', 'words.json'),
+// Supabase when it is configured, JSON files otherwise. Recording happens
+// where the network does not reach, so a field laptop with no cloud has to
+// remain a supported way to run rather than an error.
+const db = openDb(process.env, {
+  wordsFile: process.env.SOLARIS_WORDS_FILE || path.join(__dirname, 'data', 'words.json'),
+  usersFile: process.env.SOLARIS_USERS_FILE || path.join(__dirname, '.solaris-users.json'),
   indexFile: process.env.SOLARIS_WORD_INDEX || path.join(__dirname, '.solaris-words.json'),
 });
+
+const auth = new Auth(db);
+const words = new Words(db);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -400,15 +402,22 @@ async function handleSave(req, res, username) {
   if (username) {
     // Mark the prompt as covered so the randomiser stops handing it out to
     // this contributor and starts favouring thinner words for everyone else.
-    const promptId = parsedMeta && parsedMeta.prompt && parsedMeta.prompt.id;
-    if (promptId) words.recordWord(username, promptId);
-
     const scores = (parsedMeta && parsedMeta.scores) || {};
-    const credit = auth.recordWord(username, {
+    const credit = await auth.recordWord(username, {
       score: scores.banjara,
       streak: parsedMeta && parsedMeta.streak,
     });
     if (credit) { profile = credit.profile; awarded = credit.xp; }
+
+    const promptId = parsedMeta && parsedMeta.prompt && parsedMeta.prompt.id;
+    if (promptId) {
+      await words.recordWord(username, promptId, {
+        quality: scores.banjara,
+        xp: awarded,
+        durationMs: parsedMeta.durations && Math.round((parsedMeta.durations.banjara || 0) * 1000),
+        storagePath: path.relative(BASE_PATH, saveDir),
+      });
+    }
   }
 
   console.log(`[SAVED] ${saveDir} (${written.length} files)${awarded ? ` +${awarded} XP` : ''}`);
@@ -449,7 +458,21 @@ async function handleSessionLog(req, res, username) {
   // completion screen can show a level rather than just one session's XP.
   let profile = null;
   if (username) {
-    profile = auth.recordSession(username, { streak: log.streak });
+    profile = await auth.recordSession(username, { streak: log.streak });
+
+    // The run sheet goes to the database too when there is one; on files the
+    // JSON written above is the record.
+    await db.addSession({
+      contributor: username,
+      category: log.pack && log.pack.id,
+      startedAt: log.startedAt,
+      finishedAt: log.finishedAt,
+      endedHow: log.endedHow || 'completed',
+      xp: log.xp || 0,
+      recorded: (log.totals && log.totals.recorded) || 0,
+      skipped: (log.totals && log.totals.skipped) || 0,
+      detail: log.items || null,
+    }).catch(err => console.error('[SESSION LOG]', err.message));
   }
 
   console.log(`[LOG] ${target}`);
@@ -475,10 +498,10 @@ async function handleRegister(req, res) {
   }
 
   try {
-    const user = auth.register(payload);
+    const user = await auth.register(payload);
     // Sign the first user straight in; making them log in immediately after
     // choosing a password is friction for no gain.
-    const session = auth.login({ username: payload.username, password: payload.password });
+    const session = await auth.login({ username: payload.username, password: payload.password });
     sendJSON(res, 201, { user, token: session.token });
   } catch (err) {
     sendJSON(res, err.status || 400, { error: err.message });
@@ -489,25 +512,30 @@ async function handleLogin(req, res) {
   const payload = await readJSON(req, res);
   if (!payload) return;
   try {
-    sendJSON(res, 200, auth.login(payload));
+    sendJSON(res, 200, await auth.login(payload));
   } catch (err) {
     sendJSON(res, err.status || 401, { error: err.message });
   }
 }
 
-function handleMe(req, res) {
+async function handleMe(req, res) {
   const username = auth.verifyToken(bearer(req));
   if (!username) return sendJSON(res, 401, { error: 'Not signed in.', code: 'auth_required' });
-  sendJSON(res, 200, { user: auth.publicUser(username) });
+
+  const user = await auth.publicUser(username);
+  // The token is valid but the account is gone — deleted since it was issued.
+  if (!user) return sendJSON(res, 401, { error: 'Not signed in.', code: 'auth_required' });
+  sendJSON(res, 200, { user });
 }
 
 // ── Word routes ───────────────────────────────────────────────────────────────
 /** The category list, with the caller's own progress folded in. */
-function handleCategories(req, res, username) {
-  sendJSON(res, 200, {
-    categories: words.progress(username),
-    coverage: words.coverageSummary(),
-  });
+async function handleCategories(req, res, username) {
+  const [categories, coverage] = await Promise.all([
+    words.progress(username),
+    words.coverageSummary(),
+  ]);
+  sendJSON(res, 200, { categories, coverage });
 }
 
 /**
@@ -516,7 +544,7 @@ function handleCategories(req, res, username) {
  * archive fills evenly rather than deepening on whatever sits at the top of
  * the list.
  */
-function handleBatch(req, res, username) {
+async function handleBatch(req, res, username) {
   const params = new URLSearchParams((req.url.split('?')[1] || ''));
   const category = params.get('category') || null;
   const count = Math.max(1, Math.min(50, Number(params.get('count')) || 10));
@@ -525,7 +553,7 @@ function handleBatch(req, res, username) {
     return sendJSON(res, 404, { error: `No category named "${category}"` });
   }
 
-  const batch = words.batch(username, { category, count });
+  const batch = await words.batch(username, { category, count });
   sendJSON(res, 200, { category, words: batch.words, remaining: batch.remaining });
 }
 
@@ -534,7 +562,7 @@ async function handleSkip(req, res, username) {
   if (!payload) return;
   if (!payload.wordId) return sendJSON(res, 400, { error: 'Expected { wordId }' });
 
-  const noted = words.skipWord(username, payload.wordId);
+  const noted = await words.skipWord(username, payload.wordId);
   sendJSON(res, 200, { success: true, noted });
 }
 
@@ -564,17 +592,17 @@ async function handler(req, res) {
 
     if (req.method === 'POST' && pathname === '/api/auth/register') return await handleRegister(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/login')    return await handleLogin(req, res);
-    if (req.method === 'GET'  && pathname === '/api/auth/me')       return handleMe(req, res);
+    if (req.method === 'GET'  && pathname === '/api/auth/me')       return await handleMe(req, res);
 
     if (req.method === 'GET' && pathname === '/api/words/categories') {
       const who = requireUser(req, res);
       if (!who.ok) return;
-      return handleCategories(req, res, who.user);
+      return await handleCategories(req, res, who.user);
     }
     if (req.method === 'GET' && pathname === '/api/words/batch') {
       const who = requireUser(req, res);
       if (!who.ok) return;
-      return handleBatch(req, res, who.user);
+      return await handleBatch(req, res, who.user);
     }
     if (req.method === 'POST' && pathname === '/api/words/skip') {
       const who = requireUser(req, res);
@@ -619,7 +647,13 @@ const server = haveCerts
 
 const scheme = haveCerts ? 'https' : 'http';
 
-server.listen(PORT, '0.0.0.0', () => {
+async function boot() {
+  await auth.init();
+  await words.init();
+  server.listen(PORT, '0.0.0.0', onListening);
+}
+
+async function onListening() {
   const engines = Object.entries(STT).filter(([, v]) => v.key).map(([k]) => k);
   console.log('');
   console.log('  SOLARIS — data collection server');
@@ -629,9 +663,10 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`  Phone       : ${scheme}://${ip}:${PORT}`);
   }
   console.log(`  Dataset     : ${BASE_PATH}`);
+  console.log(`  Database    : ${db.name === 'supabase' ? 'Supabase' : 'local files (set SUPABASE_URL to move)'}`);
   console.log(`  STT engines : ${engines.length ? engines.join(', ') : 'none configured (transcribe manually)'}`);
   console.log(`  Accounts    : ${auth.userCount === 0 ? 'none yet — the first sign-up becomes the first user' : `${auth.userCount} registered (sign-in required)`}`);
-  const cov = words.coverageSummary();
+  const cov = await words.coverageSummary();
   console.log(`  Prompts     : ${cov.total} words in ${words.categories.length} categories (${cov.covered} recorded at least once)`);
   console.log('');
   if (!haveCerts) {
@@ -640,4 +675,14 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('        a local certificate, then restart.');
     console.log('');
   }
+}
+
+boot().catch(err => {
+  console.error('');
+  console.error('  SOLARIS could not start:', err.message);
+  if (db.name === 'supabase') {
+    console.error('  Check SUPABASE_URL and SUPABASE_SERVICE_KEY, and that db/schema.sql has been applied.');
+  }
+  console.error('');
+  process.exit(1);
 });

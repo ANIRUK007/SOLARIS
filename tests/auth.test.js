@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Auth, levelFor } = require('../auth.js');
+const { FileDb } = require('../db.js');
 
 let passed = 0;
 const unit = [];
@@ -21,74 +22,84 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DATASET = path.join(TMP, 'dataset');
 const USERS = path.join(TMP, 'users.json');
 
-function freshAuth(name) {
-  return new Auth(path.join(TMP, `unit-${name}.json`));
+const WORDS = path.join(__dirname, '..', 'data', 'words.json');
+
+async function freshAuth(name) {
+  const db = new FileDb({
+    wordsFile: WORDS,
+    usersFile: path.join(TMP, `unit-${name}.json`),
+    indexFile: path.join(TMP, `unit-${name}-index.json`),
+  });
+  return new Auth(db).init();
 }
 
 // ── Unit: hashing and tokens ──────────────────────────────────────────────────
-test('a registered password is never stored in the clear', () => {
-  const a = freshAuth('store');
-  a.register({ username: 'ravi', password: 'correct horse battery' });
+test('a registered password is never stored in the clear', async () => {
+  const a = await freshAuth('store');
+  await a.register({ username: 'ravi', password: 'correct horse battery' });
 
-  const raw = fs.readFileSync(a.storePath, 'utf8');
+  const raw = fs.readFileSync(a.db.usersFile, 'utf8');
   assert.ok(!raw.includes('correct horse battery'), 'the password appears in the store file');
-  assert.ok(a.data.users.ravi.hash && a.data.users.ravi.salt, 'no hash/salt recorded');
+
+  const stored = await a.db.findContributor('ravi');
+  assert.ok(stored.hash && stored.salt, 'no hash/salt recorded');
 });
 
-test('the same password hashes differently for two users', () => {
-  const a = freshAuth('salts');
-  a.register({ username: 'one', password: 'sharedpassword' });
-  a.register({ username: 'two', password: 'sharedpassword' });
+test('the same password hashes differently for two users', async () => {
+  const a = await freshAuth('salts');
+  await a.register({ username: 'one', password: 'sharedpassword' });
+  await a.register({ username: 'two', password: 'sharedpassword' });
   // Distinct salts, so a leaked store cannot be cracked once for everyone.
-  assert.notStrictEqual(a.data.users.one.hash, a.data.users.two.hash);
+  const [one, two] = [await a.db.findContributor('one'), await a.db.findContributor('two')];
+  assert.notStrictEqual(one.hash, two.hash);
 });
 
-test('login succeeds with the right password and fails with the wrong one', () => {
-  const a = freshAuth('login');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('login succeeds with the right password and fails with the wrong one', async () => {
+  const a = await freshAuth('login');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
-  const session = a.login({ username: 'ravi', password: 'correcthorse' });
+  const session = await a.login({ username: 'ravi', password: 'correcthorse' });
   assert.ok(session.token, 'no token issued');
   assert.strictEqual(session.user.username, 'ravi');
 
-  assert.throws(() => a.login({ username: 'ravi', password: 'wrongpass1' }), /Incorrect/);
+  await assert.rejects(() => a.login({ username: 'ravi', password: 'wrongpass1' }), /Incorrect/);
 });
 
-test('an unknown user and a wrong password report the same thing', () => {
-  const a = freshAuth('enum');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('an unknown user and a wrong password report the same thing', async () => {
+  const a = await freshAuth('enum');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
   // Different messages would let someone enumerate valid usernames.
-  const missing = (() => { try { a.login({ username: 'nobody', password: 'x' }); } catch (e) { return e.message; } })();
-  const wrong = (() => { try { a.login({ username: 'ravi', password: 'x' }); } catch (e) { return e.message; } })();
+  const missing = await a.login({ username: 'nobody', password: 'x' }).catch(e => e.message);
+  const wrong = await a.login({ username: 'ravi', password: 'x' }).catch(e => e.message);
   assert.strictEqual(missing, wrong);
 });
 
-test('usernames are case-insensitive and cannot be duplicated', () => {
-  const a = freshAuth('dupe');
-  a.register({ username: 'Ravi', password: 'correcthorse' });
-  assert.throws(() => a.register({ username: 'ravi', password: 'otherpass1' }), /already taken/);
-  assert.ok(a.login({ username: 'RAVI', password: 'correcthorse' }).token);
+test('usernames are case-insensitive and cannot be duplicated', async () => {
+  const a = await freshAuth('dupe');
+  await a.register({ username: 'Ravi', password: 'correcthorse' });
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'otherpass1' }), /already taken/);
+  assert.ok((await a.login({ username: 'RAVI', password: 'correcthorse' })).token);
 });
 
-test('weak passwords and malformed usernames are refused', () => {
-  const a = freshAuth('weak');
-  assert.throws(() => a.register({ username: 'ravi', password: 'short' }), /at least 8/);
-  assert.throws(() => a.register({ username: 'a', password: 'longenough1' }), /3-32/);
-  assert.throws(() => a.register({ username: 'has space', password: 'longenough1' }), /3-32/);
+test('weak passwords and malformed usernames are refused', async () => {
+  const a = await freshAuth('weak');
+  await assert.rejects(() => a.register({ username: 'ravi', password: 'short' }), /at least 8/);
+  await assert.rejects(() => a.register({ username: 'a', password: 'longenough1' }), /3-32/);
+  await assert.rejects(() => a.register({ username: 'has space', password: 'longenough1' }), /3-32/);
 });
 
-test('a valid token identifies its user', () => {
-  const a = freshAuth('token');
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  const { token } = a.login({ username: 'ravi', password: 'correcthorse' });
+test('a valid token identifies its user', async () => {
+  const a = await freshAuth('token');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
+  const { token } = await a.login({ username: 'ravi', password: 'correcthorse' });
   assert.strictEqual(a.verifyToken(token), 'ravi');
 });
 
-test('a tampered token is rejected', () => {
-  const a = freshAuth('tamper');
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  const { token } = a.login({ username: 'ravi', password: 'correcthorse' });
+test('a tampered token is rejected', async () => {
+  const a = await freshAuth('tamper');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
+  const { token } = await a.login({ username: 'ravi', password: 'correcthorse' });
   const [body, sig] = token.split('.');
 
   // Re-sign a different username with the same signature: the HMAC must fail.
@@ -100,130 +111,138 @@ test('a tampered token is rejected', () => {
   assert.strictEqual(a.verifyToken(null), null);
 });
 
-test('an expired token is rejected', () => {
-  const a = freshAuth('expiry');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('an expired token is rejected', async () => {
+  const a = await freshAuth('expiry');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
   const expired = a._sign({ u: 'ravi', exp: Date.now() - 1000 });
   assert.strictEqual(a.verifyToken(expired), null);
 });
 
-test("a token signed by another server's secret is rejected", () => {
-  const a = freshAuth('secret-a');
-  const b = freshAuth('secret-b');
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  b.register({ username: 'ravi', password: 'correcthorse' });
-  const fromB = b.login({ username: 'ravi', password: 'correcthorse' }).token;
+test("a token signed by another server's secret is rejected", async () => {
+  const a = await freshAuth('secret-a');
+  const b = await freshAuth('secret-b');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await b.register({ username: 'ravi', password: 'correcthorse' });
+  const fromB = await b.login({ username: 'ravi', password: 'correcthorse' }).token;
   assert.strictEqual(a.verifyToken(fromB), null);
 });
 
-test('the public profile never exposes the hash or salt', () => {
-  const a = freshAuth('public');
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  const pub = a.publicUser('ravi');
+test('the public profile never exposes the hash or salt', async () => {
+  const a = await freshAuth('public');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
+  const pub = await a.publicUser('ravi');
   assert.ok(!('hash' in pub) && !('salt' in pub), JSON.stringify(pub));
 });
 
-test('one contributed word counts immediately', () => {
-  const a = freshAuth('oneword');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('one contributed word counts immediately', async () => {
+  const a = await freshAuth('oneword');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
-  const { profile, xp } = a.recordWord('ravi', { score: 100, streak: 1 });
+  const { profile, xp } = await a.recordWord('ravi', { score: 100, streak: 1 });
   assert.strictEqual(profile.stats.words, 1, 'a single word did not register');
   assert.ok(xp > 0, 'no XP was awarded');
   assert.strictEqual(profile.stats.xp, xp);
 });
 
-test('contributions accumulate word by word', () => {
-  const a = freshAuth('stats');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('contributions accumulate word by word', async () => {
+  const a = await freshAuth('stats');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
   let total = 0;
-  for (let i = 1; i <= 5; i++) total += a.recordWord('ravi', { score: 80, streak: i }).xp;
+  for (let i = 1; i <= 5; i++) total += (await a.recordWord('ravi', { score: 80, streak: i })).xp;
 
-  const pub = a.publicUser('ravi');
+  const pub = await a.publicUser('ravi');
   assert.strictEqual(pub.stats.words, 5);
   assert.strictEqual(pub.stats.xp, total);
   assert.strictEqual(pub.level, levelFor(total));
   assert.strictEqual(pub.stats.streak, 5);
 });
 
-test('XP per word is computed by the server, within a fixed range', () => {
-  const a = freshAuth('xprange');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('XP per word is computed by the server, within a fixed range', async () => {
+  const a = await freshAuth('xprange');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
   // A client claiming an enormous score or streak cannot inflate the award.
-  const wild = a.recordWord('ravi', { score: 99999, streak: 99999 });
+  const wild = await a.recordWord('ravi', { score: 99999, streak: 99999 });
   assert.ok(wild.xp <= 25, `awarded ${wild.xp} XP for a bogus claim`);
 
-  const floorAward = a.recordWord('ravi', { score: 0, streak: 0 });
+  const floorAward = await a.recordWord('ravi', { score: 0, streak: 0 });
   assert.ok(floorAward.xp >= 10, `awarded only ${floorAward.xp} XP for a valid word`);
 });
 
-test('opening and closing a word set with nothing recorded counts for nothing', () => {
-  const a = freshAuth('nosessions');
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  a.recordSession('ravi', { streak: 0 });
+test('opening and closing a word set with nothing recorded counts for nothing', async () => {
+  const a = await freshAuth('nosessions');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
+  await a.recordSession('ravi', { streak: 0 });
 
-  const pub = a.publicUser('ravi');
+  const pub = await a.publicUser('ravi');
   assert.strictEqual(pub.stats.words, 0);
   assert.strictEqual(pub.stats.xp, 0);
   assert.ok(!('sessions' in pub.stats), 'sessions are still being counted');
 });
 
-test('finishing a set does not double-count the words already credited', () => {
-  const a = freshAuth('nodouble');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('finishing a set does not double-count the words already credited', async () => {
+  const a = await freshAuth('nodouble');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
-  a.recordWord('ravi', { score: 90, streak: 1 });
-  a.recordWord('ravi', { score: 90, streak: 2 });
-  const afterWords = a.publicUser('ravi').stats;
+  await a.recordWord('ravi', { score: 90, streak: 1 });
+  await a.recordWord('ravi', { score: 90, streak: 2 });
+  const afterWords = (await a.publicUser('ravi')).stats;
 
-  a.recordSession('ravi', { streak: 2 });
-  const afterSession = a.publicUser('ravi').stats;
+  await a.recordSession('ravi', { streak: 2 });
+  const afterSession = (await a.publicUser('ravi')).stats;
 
   assert.strictEqual(afterSession.words, afterWords.words, 'words were counted twice');
   assert.strictEqual(afterSession.xp, afterWords.xp, 'XP was counted twice');
 });
 
-test('a streak survives between sittings and only resets when told to', () => {
-  const a = freshAuth('streaks');
-  a.register({ username: 'ravi', password: 'correcthorse' });
+test('a streak survives between sittings and only resets when told to', async () => {
+  const a = await freshAuth('streaks');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
-  a.recordSession('ravi', { streak: 3 });
-  assert.strictEqual(a.publicUser('ravi').stats.streak, 3);
+  await a.recordSession('ravi', { streak: 3 });
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 3);
 
   // A sitting that reports no streak change leaves it standing.
-  a.recordSession('ravi', {});
-  assert.strictEqual(a.publicUser('ravi').stats.streak, 3, 'the streak was dropped without being told to');
+  await a.recordSession('ravi', {});
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 3, 'the streak was dropped without being told to');
 
   // A broken streak comes back as 0, but the best is remembered.
-  a.recordSession('ravi', { streak: 0 });
-  assert.strictEqual(a.publicUser('ravi').stats.streak, 0);
-  assert.strictEqual(a.publicUser('ravi').stats.bestStreak, 3);
+  await a.recordSession('ravi', { streak: 0 });
+  assert.strictEqual((await a.publicUser('ravi')).stats.streak, 0);
+  assert.strictEqual((await a.publicUser('ravi')).stats.bestStreak, 3);
 });
 
-test('a store written before streaks were persisted still loads', () => {
-  const file = path.join(TMP, 'legacy-stats.json');
-  const a = new Auth(file);
-  a.register({ username: 'ravi', password: 'correcthorse' });
-  // Simulate the older shape on disk.
-  a.data.users.ravi.stats = { xp: 240, sessions: 4, words: 9, bestStreak: 2 };
+test('a record written before streaks were persisted still loads', async () => {
+  const a = await freshAuth('legacy-stats');
+  await a.register({ username: 'ravi', password: 'correcthorse' });
 
-  const pub = a.publicUser('ravi');
+  // Simulate the older shape: a stats object with a session tally and no streak.
+  const row = await a.db.findContributor('ravi');
+  row.stats = { xp: 240, sessions: 4, words: 9, bestStreak: 2 };
+
+  const pub = await a.publicUser('ravi');
   assert.strictEqual(pub.stats.xp, 240);
   assert.strictEqual(pub.stats.words, 9);
   assert.strictEqual(pub.stats.streak, 0, 'a missing streak should read as zero');
   assert.ok(!('sessions' in pub.stats), 'the stale session count should be dropped');
 });
 
-test('accounts survive a restart', () => {
-  const file = path.join(TMP, 'persist.json');
-  const first = new Auth(file);
-  first.register({ username: 'ravi', password: 'correcthorse' });
+test('accounts survive a restart', async () => {
+  const files = {
+    wordsFile: WORDS,
+    usersFile: path.join(TMP, 'persist-users.json'),
+    indexFile: path.join(TMP, 'persist-index.json'),
+  };
+  const first = await new Auth(new FileDb(files)).init();
+  await first.register({ username: 'ravi', password: 'correcthorse' });
 
-  const second = new Auth(file);
-  assert.ok(second.login({ username: 'ravi', password: 'correcthorse' }).token,
-    'could not log in after reloading the store');
+  const second = await new Auth(new FileDb(files)).init();
+  const session = await second.login({ username: 'ravi', password: 'correcthorse' });
+  assert.ok(session.token, 'could not log in after reloading the store');
+  // The signing secret must be the same, or every existing token dies on
+  // restart.
+  assert.strictEqual(second.secret, first.secret, 'the token secret changed on restart');
 });
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -257,7 +276,7 @@ function savePayload() {
   console.log('\nauth');
 
   for (const t of unit) {
-    try { t.fn(); passed++; console.log(`  ok   ${t.name}`); }
+    try { await t.fn(); passed++; console.log(`  ok   ${t.name}`); }
     catch (err) {
       console.error(`  FAIL ${t.name}`);
       console.error(`       ${err.message}`);

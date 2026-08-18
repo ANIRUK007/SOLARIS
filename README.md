@@ -180,6 +180,61 @@ uplink, and because the operator has to hear the cleaned audio before deciding t
 
 ---
 
+## The database
+
+Two backends, chosen by whether `SUPABASE_URL` is set:
+
+| | Where | When |
+| --- | --- | --- |
+| **Supabase** | Postgres | The source of truth once configured |
+| **files** | JSON next to `server.js` | No cloud configured — a field laptop, or the tests |
+
+The file backend is not a leftover. Recording happens where the network does not
+reach, and a kit that refuses to start because a cloud is unreachable is a kit
+that does not work. Both implement the same interface in `db.js`, and every
+method is async in both, so nothing can quietly depend on files being local.
+
+### Moving to Supabase
+
+```bash
+# 1. create a project, then apply the schema
+psql "$SUPABASE_DB_URL" -f db/schema.sql      # or paste it into the SQL editor
+
+# 2. carry the words and any local accounts across
+SUPABASE_URL=https://yourproject.supabase.co \
+SUPABASE_SERVICE_KEY=... \
+npm run migrate
+
+# 3. put the same two values in .env and restart
+npm start                                      # prints "Database: Supabase"
+```
+
+The migration is safe to re-run: every row is upserted on its primary key. It
+carries the token-signing secret across too, so existing sign-ins survive the
+move rather than everyone being logged out.
+
+**The audio does not go in the database.** Recordings stay on disk (or move to
+Supabase Storage) and the tables hold a path. A few hundred thousand WAV files
+in Postgres would make the archive slow to query and awkward to copy,
+checksum or hand to another institution.
+
+**About the service key:** every table has row-level security enabled with no
+permissive policy, so only the service role can read or write. That key stays on
+the server and never reaches a browser. If the app is ever changed to talk to
+Supabase directly from the phone, policies have to be written before that ships
+— without them, `contributors` exposes every password hash.
+
+### What is stored
+
+| Table | Holds |
+| --- | --- |
+| `categories`, `words` | the prompt list imported from the tracker sheet |
+| `contributors` | accounts, scrypt hashes, XP, streaks |
+| `contributions` | one row per person per word, with quality and XP |
+| `word_coverage` | a view: how many voices each word has |
+| `sessions` | the run sheet for each sitting |
+| `app_secrets` | the token-signing key, so a restart does not sign everyone out |
+
 ## Storage, and the move to cloud
 
 Everything saved goes through one seam, `public/store.js`:

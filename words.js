@@ -18,19 +18,19 @@
  * the record, and this can be rebuilt from them if it is ever lost.
  */
 
-const fs = require('fs');
-const path = require('path');
-
 const TARGET_PER_WORD = 3;   // how many different voices we want per prompt
 
 class Words {
-  constructor({ dataFile, indexFile }) {
-    this.dataFile = dataFile;
-    this.indexFile = indexFile;
+  /** @param db anything matching the db.js interface */
+  constructor(db) {
+    this.db = db;
+  }
 
-    const db = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    this.categories = db.categories;
-    this.words = db.words;
+  /** Load the prompt list once. It is reference data and does not change
+   *  during a run, so it is worth holding in memory rather than querying. */
+  async init() {
+    this.words = await this.db.words();
+    this.categories = await this.db.categories();
 
     this.byId = new Map(this.words.map(w => [w.id, w]));
     this.byCategory = new Map();
@@ -38,32 +38,7 @@ class Words {
       if (!this.byCategory.has(word.category)) this.byCategory.set(word.category, []);
       this.byCategory.get(word.category).push(word);
     }
-
-    this.index = this._loadIndex();
-  }
-
-  _loadIndex() {
-    try {
-      if (fs.existsSync(this.indexFile)) {
-        const parsed = JSON.parse(fs.readFileSync(this.indexFile, 'utf8'));
-        if (parsed && parsed.contributors && parsed.coverage) return parsed;
-      }
-    } catch {
-      try { fs.renameSync(this.indexFile, this.indexFile + '.corrupt-' + Date.now()); } catch {}
-    }
-    return { contributors: {}, coverage: {} };
-  }
-
-  _saveIndex() {
-    const tmp = this.indexFile + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.index));
-    fs.renameSync(tmp, this.indexFile);
-  }
-
-  /** Word ids this contributor has already answered, recorded or skipped. */
-  _history(username) {
-    const entry = this.index.contributors[username];
-    return entry || (this.index.contributors[username] = { recorded: {}, skipped: {} });
+    return this;
   }
 
   // ── Assignment ──────────────────────────────────────────────────────────────
@@ -78,16 +53,19 @@ class Words {
    *
    * @returns {{words: object[], remaining: number}}
    */
-  batch(username, { category = null, count = 10 } = {}) {
-    const history = this._history(username);
+  async batch(username, { category = null, count = 10 } = {}) {
+    const [history, coverage] = await Promise.all([
+      this.db.contributorHistory(username),
+      this.db.coverage(),
+    ]);
     const pool = category ? (this.byCategory.get(category) || []) : this.words;
 
-    const available = pool.filter(w => !history.recorded[w.id] && !history.skipped[w.id]);
+    const available = pool.filter(w => !history.recorded.has(w.id) && !history.skipped.has(w.id));
 
     // Group by coverage so the shuffle only happens between equals.
     const tiers = new Map();
     for (const word of available) {
-      const seen = Math.min(this.index.coverage[word.id] || 0, TARGET_PER_WORD);
+      const seen = Math.min(coverage.get(word.id) || 0, TARGET_PER_WORD);
       if (!tiers.has(seen)) tiers.set(seen, []);
       tiers.get(seen).push(word);
     }
@@ -102,16 +80,17 @@ class Words {
   }
 
   // ── Recording ───────────────────────────────────────────────────────────────
-  recordWord(username, wordId) {
+  async recordWord(username, wordId, extra = {}) {
     if (!this.byId.has(wordId)) return false;
-    const history = this._history(username);
-    if (history.recorded[wordId]) return false;      // already counted
-
-    history.recorded[wordId] = new Date().toISOString();
-    delete history.skipped[wordId];
-    this.index.coverage[wordId] = (this.index.coverage[wordId] || 0) + 1;
-    this._saveIndex();
-    return true;
+    return this.db.addContribution({
+      contributor: username,
+      wordId,
+      outcome: 'recorded',
+      quality: extra.quality,
+      xp: extra.xp,
+      durationMs: extra.durationMs,
+      storagePath: extra.storagePath,
+    });
   }
 
   /**
@@ -119,27 +98,22 @@ class Words {
    * so it is remembered — but it does not count toward coverage, because
    * nobody recorded audio for it.
    */
-  skipWord(username, wordId) {
+  async skipWord(username, wordId) {
     if (!this.byId.has(wordId)) return false;
-    const history = this._history(username);
-    if (history.recorded[wordId] || history.skipped[wordId]) return false;
-
-    history.skipped[wordId] = new Date().toISOString();
-    this._saveIndex();
-    return true;
+    return this.db.addContribution({ contributor: username, wordId, outcome: 'skipped' });
   }
 
   // ── Reporting ───────────────────────────────────────────────────────────────
   /** Category list with this contributor's progress folded in. */
-  progress(username) {
-    const history = this._history(username);
+  async progress(username) {
+    const history = await this.db.contributorHistory(username);
 
     return this.categories.map(cat => {
       const words = this.byCategory.get(cat.id) || [];
       let recorded = 0, skipped = 0;
       for (const w of words) {
-        if (history.recorded[w.id]) recorded++;
-        else if (history.skipped[w.id]) skipped++;
+        if (history.recorded.has(w.id)) recorded++;
+        else if (history.skipped.has(w.id)) skipped++;
       }
       return {
         ...cat,
@@ -152,10 +126,11 @@ class Words {
   }
 
   /** How thinly the archive is covered overall, for the project's own sake. */
-  coverageSummary() {
+  async coverageSummary() {
+    const coverage = await this.db.coverage();
     let covered = 0, atTarget = 0;
     for (const word of this.words) {
-      const seen = this.index.coverage[word.id] || 0;
+      const seen = coverage.get(word.id) || 0;
       if (seen > 0) covered++;
       if (seen >= TARGET_PER_WORD) atTarget++;
     }
