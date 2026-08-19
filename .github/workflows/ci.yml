@@ -1,0 +1,49 @@
+# Every push runs the suite. The app has no dependencies, so there is nothing
+# to install and the whole thing finishes in well under a minute.
+name: tests
+
+on:
+  push:
+    branches: [main, mobile]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The headless suites. They spawn their own servers on loopback and are
+      # given an empty SUPABASE_URL so a test run can never reach the live
+      # project — which it did once, and wrote to it.
+      - name: Unit and server tests
+        env:
+          SUPABASE_URL: ''
+          SUPABASE_SERVICE_KEY: ''
+        run: npm test
+
+      # The browser suite needs Chromium, which is the only thing here worth
+      # downloading, so it is a separate step and can fail on its own.
+      - name: Install Chromium
+        run: npx --yes playwright@1.49.1 install --with-deps chromium
+
+      - name: Browser tests
+        env:
+          SUPABASE_URL: ''
+          SUPABASE_SERVICE_KEY: ''
+        run: npm run test:e2e
+
+      # Screenshots are how the real defects were caught in this project —
+      # icons rendering as silhouettes, a clipped flag, an empty map. Keep them
+      # when a run fails so there is something to look at.
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: tests/screenshots/
+          if-no-files-found: ignore

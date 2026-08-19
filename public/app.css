@@ -46,6 +46,20 @@ button { font-family: inherit; touch-action: manipulation; }
    viewport with its controls pinned in reach. */
 .screen.scrolls { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
+/* ── NO SCROLLBARS ─────────────────────────────────────────────────────────────
+   A phone draws a scrollbar only while the thumb is moving and then takes it
+   away; a desktop browser leaves a permanent grey gutter down the side. This
+   app is one column with a road running through it, and a gutter cuts a line
+   through that road on every laptop it is opened on. The position is already
+   told by the map — the finished tiles behind and the gate ahead — so the bar
+   is duplicating an answer the screen has given better.
+
+   Nothing is trapped by this: the content still scrolls by wheel, trackpad,
+   touch, arrow keys, Page Up/Down and Home/End, all of which keep working
+   because only the bar is hidden, not the overflow. */
+* { scrollbar-width: none; }              /* Firefox */
+*::-webkit-scrollbar { width: 0; height: 0; }  /* Safari, Chrome */
+
 /* ── TOP BAR ───────────────────────────────────────────────────────────────── */
 .topbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 

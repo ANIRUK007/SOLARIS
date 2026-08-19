@@ -274,6 +274,19 @@ const walk = (dir) => fs.existsSync(dir)
     check('the map is a few screens long, not a hundred', reach > 1 && reach < 12,
       `${reach} screens of scroll`);
 
+    // A scrollbar gutter cuts a grey line down the side of the map on every
+    // desktop browser. Hidden, not disabled — the content still has to scroll.
+    const bar = await page.evaluate(() => {
+      const body = document.querySelector('#screen-portal .portal-body');
+      body.scrollTop = 0;                 // the gate check left it at the bottom
+      body.scrollTop = 240;
+      const moved = body.scrollTop > 0;
+      body.scrollTop = 0;
+      return { gutter: body.offsetWidth - body.clientWidth, moved, scrollable: body.scrollHeight > body.clientHeight };
+    });
+    check('no scrollbar gutter down the side of the map', bar.gutter === 0, `${bar.gutter}px of gutter`);
+    check('hiding the bar did not stop the scrolling', bar.scrollable && bar.moved, JSON.stringify(bar));
+
     await page.evaluate(() => { document.querySelector('#screen-portal .portal-body').scrollTop = 0; });
     await page.waitForTimeout(150);
 
