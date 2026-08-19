@@ -673,12 +673,31 @@ async function handleSkip(req, res, username) {
   sendJSON(res, 200, { success: true, noted });
 }
 
+/**
+ * Whether the browser reached us over TLS — which is not the same question as
+ * whether this process is speaking it.
+ *
+ * On a hosted platform the proxy terminates TLS and forwards plain HTTP, so
+ * `socket.encrypted` is false on a connection the user made over https. Going
+ * by the socket alone meant a real deployment never sent HSTS, which is the
+ * header that stops a first visit over http being intercepted.
+ *
+ * `x-forwarded-proto` is only believed when the server has been told it is
+ * behind a proxy — otherwise anyone could set the header, and the app would
+ * claim a secure origin it does not have.
+ */
+function isSecure(req) {
+  if (req.socket.encrypted) return true;
+  if (!TRUST_PROXY) return false;
+  return String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+}
+
 // ── Request handler ───────────────────────────────────────────────────────────
 async function handler(req, res) {
   setCORS(req, res);
 
   // Defensive headers on every response, including the app itself.
-  for (const [name, value] of Object.entries(securityHeaders(!!req.socket.encrypted))) {
+  for (const [name, value] of Object.entries(securityHeaders(isSecure(req)))) {
     res.setHeader(name, value);
   }
 
@@ -701,7 +720,7 @@ async function handler(req, res) {
       // use for either.
       return sendJSON(res, 200, {
         status: 'ok',
-        secure: !!req.socket.encrypted,
+        secure: isSecure(req),
         engines: { sarvam: !!STT.sarvam.key, groq: !!STT.groq.key },
         auth: { required: auth.isBootstrapped, openRegistration: OPEN_REGISTRATION, inviteRequired: !!INVITE_CODE },
       });

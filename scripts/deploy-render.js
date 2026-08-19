@@ -110,7 +110,10 @@ async function api(method, endpoint, body) {
     console.log(`Repository  : ${REPO} @ ${BRANCH}`);
     console.log(`Region      : ${REGION}    Plan: ${PLAN}`);
 
-    service = await api('POST', '/services', {
+    // Creation answers with the service wrapped alongside the deploy it
+    // started on its own: { service: {...}, deployId }. Reading .id off the
+    // envelope gets undefined, and the next call asks for service "undefined".
+    const created = await api('POST', '/services', {
       type: 'web_service',
       name: NAME,
       ownerId: owner.id,
@@ -136,9 +139,12 @@ async function api(method, endpoint, body) {
         { key: 'SOLARIS_OPEN_REGISTRATION', value: 'true' },
       ],
     });
+
+    service = created.service || created;
   }
 
   const id = service.id;
+  if (!id) throw new Error(`Render returned no service id: ${JSON.stringify(service).slice(0, 300)}`);
 
   // ── Deploy, and wait ───────────────────────────────────────────────────────
   const deploy = await api('POST', `/services/${id}/deploys`, { clearCache: 'do_not_clear' });

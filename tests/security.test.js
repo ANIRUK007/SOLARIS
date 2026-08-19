@@ -248,6 +248,52 @@ const api = {
       !cors.headers.get('access-control-allow-origin'),
       `allow-origin: ${cors.headers.get('access-control-allow-origin')}`);
 
+    // ── HSTS behind a proxy ──────────────────────────────────────────────────
+    // A hosted platform terminates TLS and forwards plain HTTP. Going by the
+    // socket alone, a real deployment never sent HSTS at all — which is the
+    // header that stops a first visit over http being intercepted.
+    const spoofed = await fetch(BASE + '/health', { headers: { 'X-Forwarded-Proto': 'https' } });
+    check('a forwarded-proto header is ignored when not behind a proxy',
+      !spoofed.headers.get('strict-transport-security') &&
+      (await spoofed.json()).secure === false,
+      'the app claimed a secure origin on the strength of a header anyone can set');
+
+    // The same request, against a server that has been told it is proxied.
+    const proxied = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+      env: {
+        ...process.env,
+        PORT: String(PORT + 1),
+        SOLARIS_TRUST_PROXY: 'true',
+        SOLARIS_DATASET_DIR: path.join(TMP, 'dataset2'),
+        SOLARIS_USERS_FILE: path.join(TMP, 'users2.json'),
+        SOLARIS_WORD_INDEX: path.join(TMP, 'index2.json'),
+        SUPABASE_URL: '', SUPABASE_SERVICE_KEY: '',
+        SSL_CERT: path.join(TMP, 'none'), SSL_KEY: path.join(TMP, 'none'),
+      },
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+
+    try {
+      const base2 = `http://127.0.0.1:${PORT + 1}`;
+      for (let i = 0; i < 80; i++) {
+        try { if ((await fetch(base2 + '/health')).ok) break; } catch {}
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      const behind = await fetch(base2 + '/health', { headers: { 'X-Forwarded-Proto': 'https' } });
+      check('HSTS is sent when a trusted proxy says the visitor came over TLS',
+        /max-age=\d+/.test(behind.headers.get('strict-transport-security') || ''),
+        `header was ${behind.headers.get('strict-transport-security')}`);
+      check('the app reports itself secure behind a TLS-terminating proxy',
+        (await behind.json()).secure === true);
+
+      const plain = await fetch(base2 + '/health', { headers: { 'X-Forwarded-Proto': 'http' } });
+      check('a proxied request that really was plain http gets no HSTS',
+        !plain.headers.get('strict-transport-security'));
+    } finally {
+      proxied.kill();
+    }
+
     // ── Oversized bodies ─────────────────────────────────────────────────────
     const huge = await fetch(BASE + '/api/auth/login', {
       method: 'POST',
