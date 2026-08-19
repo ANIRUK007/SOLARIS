@@ -1290,16 +1290,19 @@ button { font-family: inherit; touch-action: manipulation; }
    list. A list of ten identical rows says "form to fill in"; a trail says
    "you are somewhere along this", which is the truer description. */
 .path {
+  position: relative;      /* the road is drawn into this box */
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Room for the label under each node and the flag above the live one, which
-     otherwise collide with their neighbours. */
-  gap: 30px;
-  padding: 44px 0 32px;
+  /* Enough air between tiles for the road to read as a road rather than as a
+     join, and for the live tile's flag to clear the one above. */
+  gap: 40px;
+  padding: 46px 0 40px;
 }
 
 .node-row {
+  position: relative;
+  z-index: 1;              /* tiles sit on the road, not under it */
   display: flex;
   justify-content: center;
   width: 100%;
@@ -1393,16 +1396,7 @@ button { font-family: inherit; touch-action: manipulation; }
   50%      { transform: translate(-50%, -4px); }
 }
 
-.node-num {
-  position: absolute;
-  bottom: -22px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
+
 
 .path-end {
   margin-top: 26px;
@@ -1522,10 +1516,37 @@ button { font-family: inherit; touch-action: manipulation; }
 .section-band.done .band-count { color: var(--green-ink); }
 .section-band.done .band-range { color: var(--green-ink); opacity: .8; }
 
-/* Five offsets, one per tile in a section, so each chapter has the same shape
-   instead of the trail drifting off one side. */
-.node-row.off-0 { transform: translateX(0); }
-.node-row.off-1 { transform: translateX(52px); }
-.node-row.off-2 { transform: translateX(72px); }
-.node-row.off-3 { transform: translateX(52px); }
-.node-row.off-4 { transform: translateX(0); }
+
+/* ── THE ROAD ──────────────────────────────────────────────────────────────── */
+/* Drawn behind the tiles from their measured centres. Without it the tiles are
+   circles scattered down a page; with it they are stops along something. */
+.trail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* What is still ahead: a dashed line, the way an unwalked route is drawn. */
+.trail-ahead {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 2 22;
+}
+
+/* What has been walked: solid, in the colour that means done everywhere else. */
+.trail-done {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 10;
+  stroke-linecap: round;
+  opacity: .35;
+}
+
+/* The section band spans the column, so the road passes behind it rather than
+   being interrupted by it. */
+.section-band { position: relative; z-index: 1; }

@@ -231,6 +231,108 @@
    * So node three means "the third ten words you record from this set", not a
    * particular ten.
    */
+  /**
+   * How far a tile sits from the centre line.
+   *
+   * Two sine waves of different periods, summed. One wave repeats every few
+   * tiles and reads as a pattern; two that do not share a period wander for
+   * long enough that the eye never finds the loop. The phase is derived from
+   * the set's id, so Places and Animals are recognisably different roads
+   * rather than the same shape with different labels.
+   */
+  function tileOffset(index, amplitude, phase) {
+    const slow = Math.sin(index * 1.15 + phase);          // turns every ~5 tiles
+    const fast = Math.sin(index * 0.47 + phase * 1.3);     // every ~13, to break the loop
+    return (slow * 0.74 + fast * 0.26) * amplitude;
+  }
+
+  /** A stable number from a string, so a set always draws the same road. */
+  function phaseFor(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000;
+    return (h / 1000) * Math.PI * 2;
+  }
+
+  /**
+   * The road itself, drawn behind the tiles.
+   *
+   * Measured rather than calculated: the section bands change the spacing, and
+   * guessing where a tile ended up would put the road next to it rather than
+   * through it. The part already walked is solid green; what is left is a grey
+   * dashed line.
+   */
+  function drawTrail() {
+    const path = $('path');
+    const old = path.querySelector('.trail');
+    if (old) old.remove();
+
+    const nodes = [...path.querySelectorAll('.node')];
+    if (nodes.length < 2) return;
+
+    const box = path.getBoundingClientRect();
+    const points = nodes.map(n => {
+      const r = n.getBoundingClientRect();
+      return { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2 };
+    });
+
+    const doneCount = path.querySelectorAll('.node.done').length;
+
+    // A Catmull-Rom curve through the centres, written out as beziers.
+    const segment = (from, to) => {
+      let d = `M ${points[from].x} ${points[from].y}`;
+      for (let i = from; i < to; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        d += ` C ${p1.x + (p2.x - p0.x) / 6} ${p1.y + (p2.y - p0.y) / 6},` +
+             ` ${p2.x - (p3.x - p1.x) / 6} ${p2.y - (p3.y - p1.y) / 6},` +
+             ` ${p2.x} ${p2.y}`;
+      }
+      return d;
+    };
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'trail');
+    svg.setAttribute('width', box.width);
+    svg.setAttribute('height', path.scrollHeight);
+    svg.setAttribute('aria-hidden', 'true');
+
+    const line = (d, cls) => {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', d);
+      el.setAttribute('class', cls);
+      svg.appendChild(el);
+    };
+
+    line(segment(0, points.length - 1), 'trail-ahead');
+    if (doneCount > 0) line(segment(0, Math.min(doneCount, points.length - 1)), 'trail-done');
+
+    path.insertBefore(svg, path.firstChild);
+  }
+
+  /**
+   * Put the tile they are up to on screen.
+   *
+   * A set of a hundred words is ten tiles; somebody returning to their sixtieth
+   * word should not have to scroll past six finished ones to find where they
+   * were. Placed a third of the way down rather than at the top, so the road
+   * behind is visible and the position reads as progress.
+   */
+  function scrollToLive() {
+    const body = document.querySelector('#screen-portal .portal-body');
+    const live = $('path').querySelector('.node.live');
+    if (!body || !live) return;
+
+    // Measured, not offsetTop: the tile's offset parent is its own row, so
+    // offsetTop is a couple of pixels and the scroll never moved.
+    const bodyBox = body.getBoundingClientRect();
+    const liveBox = live.getBoundingClientRect();
+    const top = body.scrollTop + (liveBox.top - bodyBox.top) - body.clientHeight * 0.34;
+
+    body.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }
+
   function paintPath() {
     const path = $('path');
     path.innerHTML = '';
@@ -240,6 +342,11 @@
     const total = currentSet.count;
     const nodes = Math.ceil(total / CONFIG.batchSize);
     const finished = Math.floor(done / CONFIG.batchSize);
+
+    // Keep the wander inside the screen: half the width, less the tile and a
+    // margin, so no tile ever runs off the edge on a narrow phone.
+    const amplitude = Math.max(28, Math.min(96, path.clientWidth / 2 - 74));
+    const phase = phaseFor(currentSet.id);
 
     for (let i = 0; i < nodes; i++) {
       // A hundred words is ten tiles in one unbroken column, which reads as a
@@ -262,9 +369,8 @@
       }
 
       const row = document.createElement('div');
-      // The offsets restart with each section, so every chapter has the same
-      // shape rather than the trail drifting off one side.
-      row.className = `node-row off-${i % CONFIG.tilesPerSection}`;
+      row.className = 'node-row';
+      row.style.transform = `translateX(${tileOffset(i, amplitude, phase).toFixed(1)}px)`;
 
       const node = document.createElement('button');
       node.type = 'button';
@@ -276,8 +382,7 @@
 
       node.innerHTML =
         (state === 'live' ? '<span class="node-flag">Start</span>' : '') +
-        ico(state === 'done' ? 'check' : 'mic') +
-        `<span class="node-num">${from}–${to}</span>`;
+        ico(state === 'done' ? 'check' : 'mic');
 
       node.setAttribute('aria-label',
         state === 'done' ? `Words ${from} to ${to}, recorded`
@@ -294,6 +399,12 @@
       end.textContent = `Every word in ${currentSet.name} is recorded. Pick another set below.`;
       path.appendChild(end);
     }
+
+    // Both need the tiles to have been laid out before they can measure.
+    requestAnimationFrame(() => {
+      drawTrail();
+      scrollToLive();
+    });
   }
 
   /**
@@ -1404,6 +1515,13 @@
     });
 
     window.addEventListener('online', () => { SolarisStore.flush().catch(() => {}); });
+
+    // The road is measured, so a rotation invalidates it.
+    let trailTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(trailTimer);
+      trailTimer = setTimeout(() => { if (!$('screen-portal').hidden) paintPath(); }, 180);
+    });
 
     window.addEventListener('beforeunload', (e) => {
       if (G.isRec || (G.index > 0 && !$('screen-play').hidden)) { e.preventDefault(); e.returnValue = ''; }

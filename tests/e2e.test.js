@@ -219,6 +219,30 @@ const walk = (dir) => fs.existsSync(dir)
       /Words \d+–\d+/.test(await page.textContent('#path .section-band')),
       await page.textContent('#path .section-band'));
 
+    check('a road is drawn between the tiles',
+      await page.evaluate(() => !!document.querySelector('#path .trail path')));
+
+    // A fixed pattern per section made the second half look like the first
+    // stamped again.
+    const offsets = await page.evaluate(() =>
+      [...document.querySelectorAll('#path .node-row')]
+        .map(r => Math.round(r.getBoundingClientRect().left)));
+    const repeats = offsets.slice(0, 5).every((v, i) => Math.abs(v - offsets[5 + i]) < 3);
+    check('the road wanders rather than repeating the same shape per section',
+      !repeats, `offsets: ${offsets.join(', ')}`);
+
+    check('no tile is pushed off the side of the screen',
+      await page.evaluate(() => [...document.querySelectorAll('#path .node')]
+        .every(n => {
+          const r = n.getBoundingClientRect();
+          return r.left >= 0 && r.right <= window.innerWidth;
+        })));
+
+    check('a set with nothing done opens at the start of the road',
+      await page.evaluate(() =>
+        document.querySelector('#screen-portal .portal-body').scrollTop < 40));
+
+
     check('exactly one node is the live one',
       await page.evaluate(() => document.querySelectorAll('#path .node.live').length) === 1);
 
@@ -249,6 +273,54 @@ const walk = (dir) => fs.existsSync(dir)
     check('no horizontal overflow on the portal', portalOverflow <= 0, `overflows by ${portalOverflow}px`);
 
     await page.screenshot({ path: path.join(SHOTS, '02-portal.png'), fullPage: true });
+
+    // ── Returning lands on the tile they are up to ───────────────────────────
+    // Sixty words answered the way the app answers them, so the map has real
+    // progress behind it rather than a number poked into the page.
+    await page.evaluate(async () => {
+      // The set the map is showing, not whichever comes first in the list.
+      const shown = document.querySelector('#unitName').textContent.trim();
+      const r = await window.SolarisAuth.fetch('/api/words/categories');
+      const cats = (await r.json()).categories;
+      const set = cats.find(c => c.name === shown) || cats[0];
+
+      for (let round = 0; round < 2; round++) {
+        const b = await window.SolarisAuth.fetch(
+          `/api/words/batch?category=${set.id}&count=30`);
+        for (const w of (await b.json()).words) {
+          await window.SolarisAuth.fetch('/api/words/skip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wordId: w.id }),
+          });
+        }
+      }
+    });
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('#screen-portal:not([hidden])', { timeout: 15000 });
+    await page.waitForTimeout(900);
+
+    const resumed = await page.evaluate(() => {
+      const body = document.querySelector('#screen-portal .portal-body');
+      const live = document.querySelector('#path .node.live');
+      if (!live) return { ok: false, why: 'no live tile' };
+
+      const b = body.getBoundingClientRect();
+      const l = live.getBoundingClientRect();
+      return {
+        ok: l.top >= b.top && l.bottom <= b.bottom,
+        scrollTop: Math.round(body.scrollTop),
+        label: (live.querySelector('.node-num') || {}).textContent || '',
+        done: document.querySelectorAll('#path .node.done').length,
+      };
+    });
+
+    check('returning scrolls to the tile after the last one contributed',
+      resumed.ok && resumed.scrollTop > 0, JSON.stringify(resumed));
+    check('the tiles already answered are marked done',
+      resumed.done === 6, `${resumed.done} done`);
+    check('the live tile is the next one along', resumed.label === '61–70', resumed.label);
 
     // ── Start a session from the path ────────────────────────────────────────
     await page.click('#path .node.live');
