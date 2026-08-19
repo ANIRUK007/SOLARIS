@@ -311,8 +311,10 @@ const walk = (dir) => fs.existsSync(dir)
       return {
         ok: l.top >= b.top && l.bottom <= b.bottom,
         scrollTop: Math.round(body.scrollTop),
-        label: (live.querySelector('.node-num') || {}).textContent || '',
         done: document.querySelectorAll('#path .node.done').length,
+        // Position of the live tile among all tiles, which is what "the next
+        // one along" means now the per-tile labels are gone.
+        index: [...document.querySelectorAll('#path .node')].indexOf(live),
       };
     });
 
@@ -320,7 +322,8 @@ const walk = (dir) => fs.existsSync(dir)
       resumed.ok && resumed.scrollTop > 0, JSON.stringify(resumed));
     check('the tiles already answered are marked done',
       resumed.done === 6, `${resumed.done} done`);
-    check('the live tile is the next one along', resumed.label === '61–70', resumed.label);
+    check('the live tile is the one straight after the finished ones',
+      resumed.index === resumed.done, `live at ${resumed.index}, ${resumed.done} done`);
 
     // ── Start a session from the path ────────────────────────────────────────
     await page.click('#path .node.live');
