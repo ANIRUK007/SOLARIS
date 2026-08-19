@@ -18,8 +18,7 @@
     minScore: 50,
     minDuration: 0.6,
     baseXp: 10,
-    batchSize: 10,          // prompts handed out per sitting
-    tilesPerSection: 5,     // tiles between one section band and the next
+    batchSize: 5,           // prompts per tile, and per sitting
   };
 
   const $ = (id) => document.getElementById(id);
@@ -193,35 +192,9 @@
 
   // ── Portal ──────────────────────────────────────────────────────────────────
   let packs = [];                      // the categories, with progress folded in
-  let currentSet = null;               // the one the path is showing
 
-  /** Which set to show a path for: the one last worked on, else the first with
-   *  anything left to do. */
-  function chooseSet() {
-    if (!packs.length) return null;
 
-    const remembered = localStorage.getItem('solaris_set');
-    const kept = packs.find(p => p.id === remembered);
-    if (kept && packDone(kept) < kept.count) return kept;
 
-    return packs.find(p => packDone(p) > 0 && packDone(p) < p.count)
-        || packs.find(p => packDone(p) < p.count)
-        || packs[0];
-  }
-
-  function setCurrentSet(pack) {
-    currentSet = pack;
-    if (pack) localStorage.setItem('solaris_set', pack.id);
-    paintUnit();
-    paintPath();
-  }
-
-  function paintUnit() {
-    if (!currentSet) return;
-    $('unitIcon').innerHTML = ico(currentSet.icon || 'box');
-    $('unitName').textContent = currentSet.name;
-    $('unitCount').textContent = `${packDone(currentSet)}/${currentSet.count}`;
-  }
 
   /**
    * One node per batch of ten words.
@@ -333,74 +306,82 @@
     body.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
   }
 
+  /**
+   * Draw the whole archive as one road.
+   *
+   * A section is a word set, in the order the archive lists them, and each set
+   * contributes its own run of tiles. There is no set to choose any more: the
+   * map is everything, and where you are in it is a position rather than a
+   * selection.
+   */
   function paintPath() {
     const path = $('path');
     path.innerHTML = '';
-    if (!currentSet) return;
-
-    const done = packDone(currentSet);
-    const total = currentSet.count;
-    const nodes = Math.ceil(total / CONFIG.batchSize);
-    const finished = Math.floor(done / CONFIG.batchSize);
+    if (!packs.length) return;
 
     // Keep the wander inside the screen: half the width, less the tile and a
     // margin, so no tile ever runs off the edge on a narrow phone.
     const amplitude = Math.max(28, Math.min(96, path.clientWidth / 2 - 74));
-    const phase = phaseFor(currentSet.id);
+    let tileIndex = 0;          // counts across sections, so the road is one road
+    let liveFound = false;
 
-    for (let i = 0; i < nodes; i++) {
-      // A hundred words is ten tiles in one unbroken column, which reads as a
-      // scroll with no landmarks. Breaking it every five gives the map
-      // chapters, and a place to see how far along the set you are.
-      if (i % CONFIG.tilesPerSection === 0) {
-        const sectionNo = Math.floor(i / CONFIG.tilesPerSection) + 1;
+    for (const pack of packs) {
+      const done = packDone(pack);
+      const total = pack.count;
+      const tiles = Math.ceil(total / CONFIG.batchSize);
+      const finished = Math.floor(done / CONFIG.batchSize);
+      const phase = phaseFor(pack.id);
+
+      const band = document.createElement('div');
+      band.className = 'section-band' + (done >= total ? ' done' : '');
+      band.innerHTML = `
+        <span class="band-icon">${ico(pack.icon || 'box')}</span>
+        <span class="band-text">
+          <span class="band-no">${escapeHtml(pack.name)}</span>
+          <span class="band-range">${total} words</span>
+        </span>
+        <span class="band-count">${done}/${total}</span>`;
+      path.appendChild(band);
+
+      for (let i = 0; i < tiles; i++) {
+        const row = document.createElement('div');
+        row.className = 'node-row';
+        row.style.transform = `translateX(${tileOffset(tileIndex, amplitude, phase).toFixed(1)}px)`;
+
+        // The first unfinished tile anywhere on the map is the live one;
+        // everything after it is ahead, even in a set already started.
+        const isDone = i < finished;
+        const isLive = !isDone && !liveFound;
+        if (isLive) liveFound = true;
+
+        const node = document.createElement('button');
+        node.type = 'button';
+        node.className = `node ${isDone ? 'done' : isLive ? 'live' : 'ahead'}`;
+
         const from = i * CONFIG.batchSize + 1;
-        const to = Math.min((i + CONFIG.tilesPerSection) * CONFIG.batchSize, total);
-        const sectionDone = Math.max(0, Math.min(done - i * CONFIG.batchSize,
-          (to - from + 1)));
+        const to = Math.min((i + 1) * CONFIG.batchSize, total);
+        node.setAttribute('aria-label', isDone
+          ? `${pack.name}, words ${from} to ${to}, recorded`
+          : `Record ${pack.name}, words ${from} to ${to}`);
 
-        const header = document.createElement('div');
-        header.className = 'section-band' + (sectionDone >= (to - from + 1) ? ' done' : '');
-        header.innerHTML = `
-          <span class="band-no">Section ${sectionNo}</span>
-          <span class="band-range">Words ${from}–${to}</span>
-          <span class="band-count">${sectionDone}/${to - from + 1}</span>`;
-        path.appendChild(header);
+        node.innerHTML = (isLive ? '<span class="node-flag">Start</span>' : '') +
+          ico(isDone ? 'check' : 'mic');
+
+        node.addEventListener('click', () => openPack(pack, node));
+        row.appendChild(node);
+        path.appendChild(row);
+        tileIndex++;
       }
-
-      const row = document.createElement('div');
-      row.className = 'node-row';
-      row.style.transform = `translateX(${tileOffset(i, amplitude, phase).toFixed(1)}px)`;
-
-      const node = document.createElement('button');
-      node.type = 'button';
-      const state = i < finished ? 'done' : i === finished ? 'live' : 'ahead';
-      node.className = `node ${state}`;
-
-      const from = i * CONFIG.batchSize + 1;
-      const to = Math.min((i + 1) * CONFIG.batchSize, total);
-
-      node.innerHTML =
-        (state === 'live' ? '<span class="node-flag">Start</span>' : '') +
-        ico(state === 'done' ? 'check' : 'mic');
-
-      node.setAttribute('aria-label',
-        state === 'done' ? `Words ${from} to ${to}, recorded`
-          : `Record words ${from} to ${to} of ${currentSet.name}`);
-
-      node.addEventListener('click', () => openPack(currentSet, node));
-      row.appendChild(node);
-      path.appendChild(row);
     }
 
-    if (done >= total) {
+    if (!liveFound) {
       const end = document.createElement('p');
       end.className = 'path-end';
-      end.textContent = `Every word in ${currentSet.name} is recorded. Pick another set below.`;
+      end.textContent = 'Every word in the archive has been recorded.';
       path.appendChild(end);
     }
 
-    // Both need the tiles to have been laid out before they can measure.
+    // Both need the tiles laid out before they can measure.
     requestAnimationFrame(() => {
       drawTrail();
       scrollToLive();
@@ -427,7 +408,6 @@
       console.error('[WORDS]', err);
       packs = [];
     }
-    renderPacks();
   }
 
   /**
@@ -442,80 +422,7 @@
     G.doneSince[packId] = (G.doneSince[packId] || 0) + 1;
   }
 
-  /**
-   * Refresh the progress shown on the existing cards without rebuilding them.
-   * Replacing the grid would detach the very node the operator is reaching
-   * for, and the tap would land on nothing.
-   */
-  function refreshPackProgress() {
-    for (const card of $('packGrid').children) {
-      const pack = packs.find(p => p.id === card.dataset.pack);
-      if (!pack) continue;
 
-      const done = packDone(pack);
-      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
-
-      card.querySelector('.pack-fill').style.width = pct + '%';
-      card.querySelector('.pack-track').classList.toggle('empty', !pct);
-      const meta = card.querySelector('.pack-meta');
-      const next = `${done}/${pack.count}`;
-      if (meta.textContent !== next) {
-        meta.textContent = next;
-        meta.classList.remove('bumped');
-        void meta.offsetWidth;
-        meta.classList.add('bumped');
-      }
-      card.querySelector('.pack-go').innerHTML = ico(pct >= 100 ? 'check' : 'chevron');
-      card.classList.toggle('complete', pct >= 100);
-      card.classList.toggle('started', done > 0 && pct < 100);
-      card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
-    }
-  }
-
-  function renderPacks() {
-    const grid = $('packGrid');
-    grid.innerHTML = '';
-
-    if (!packs.length) {
-      const empty = document.createElement('p');
-      empty.className = 'card-hint';
-      empty.textContent = 'No word sets could be loaded. Check that public/packs/ is present on the server.';
-      grid.appendChild(empty);
-      return;
-    }
-
-    packs.forEach((pack, index) => {
-      const done = packDone(pack);
-      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
-
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'pack' + (pct >= 100 ? ' complete' : done > 0 ? ' started' : '');
-      card.dataset.pack = pack.id;
-      card.setAttribute('aria-label', `${pack.name}, ${done} of ${pack.count} done`);
-
-      card.innerHTML = `
-        <span class="pack-icon">${ico(pack.icon || 'box')}</span>
-        <span class="pack-body">
-          <span class="pack-top">
-            <span class="pack-name">${escapeHtml(pack.name)}</span>
-            <span class="pack-meta">${done}/${pack.count}</span>
-          </span>
-          <span class="pack-track${pct ? '' : ' empty'}"><span class="pack-fill" style="width:${pct}%"></span></span>
-        </span>
-        <span class="pack-go">${ico(pct >= 100 ? 'check' : 'chevron')}</span>`;
-
-      card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
-      card.style.animationDelay = `${Math.min(index * 45, 320)}ms`;
-      // Choosing a set from the list points the path at it. Recording starts
-      // from the path, so the choice and the commitment stay separate.
-      card.addEventListener('click', () => {
-        setCurrentSet(pack);
-        closeSets();
-      });
-      grid.appendChild(card);
-    });
-  }
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => (
@@ -583,41 +490,17 @@
     // Whatever route got us here, the portal cannot draw without them.
     if (!packs.length) await loadPacks();
 
-    if ($('packGrid').children.length) refreshPackProgress();
-    else renderPacks();
-    setCurrentSet(currentSet && packs.find(p => p.id === currentSet.id) || chooseSet());
+    paintPath();
     refreshQueue();
   }
 
   // ── Sets panel ──────────────────────────────────────────────────────────────
   let setsOpen = false;
 
-  function openSets() {
-    if (setsOpen) return;
-    setsOpen = true;
-    renderPacks();
-    $('setsScrim').hidden = false;
-    $('setsPanel').hidden = false;
-    requestAnimationFrame(() => {
-      $('setsScrim').classList.add('show');
-      $('setsPanel').classList.add('show');
-    });
-  }
 
-  function closeSets() {
-    if (!setsOpen) return;
-    setsOpen = false;
-    $('setsScrim').classList.remove('show');
-    $('setsPanel').classList.remove('show');
-    setTimeout(() => {
-      $('setsScrim').hidden = true;
-      $('setsPanel').hidden = true;
-    }, 340);
-    setTab('learn');
-  }
 
   function setTab(which) {
-    for (const [name, el] of [['learn', $('tabLearn')], ['sets', $('tabSets')], ['you', $('tabYou')]]) {
+    for (const [name, el] of [['learn', $('tabLearn')], ['you', $('tabYou')]]) {
       el.classList.toggle('is-on', name === which);
     }
   }
@@ -1474,12 +1357,7 @@
     $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
     $('btnSignOut').addEventListener('click', signOut);
     $('btnProfile').addEventListener('click', openDrawer);
-    $('unitBanner').addEventListener('click', openSets);
-    $('btnCloseSets').addEventListener('click', closeSets);
-    $('setsScrim').addEventListener('click', closeSets);
-
-    $('tabLearn').addEventListener('click', () => { closeSets(); closeDrawer(); setTab('learn'); });
-    $('tabSets').addEventListener('click', () => { setTab('sets'); openSets(); });
+    $('tabLearn').addEventListener('click', () => { closeDrawer(); setTab('learn'); });
     $('tabYou').addEventListener('click', () => { setTab('you'); openDrawer(); });
     $('btnCloseDrawer').addEventListener('click', closeDrawer);
     $('drawerScrim').addEventListener('click', closeDrawer);
@@ -1539,10 +1417,7 @@
     $('skipIcon').innerHTML = ico('ban');
     $('recGlyph').innerHTML = ico('mic');
     $('btnQuit').innerHTML = ico('close');
-    $('btnCloseSets').innerHTML = ico('close');
-    $('unitSwitch').innerHTML = ico('chevron');
     $('tabLearnIcon').innerHTML = ico('mic');
-    $('tabSetsIcon').innerHTML = ico('box');
     $('tabYouIcon').innerHTML = ico('user');
     $('btnCloseDrawer').innerHTML = ico('close');
     $('btnReplay').innerHTML = ico('play');

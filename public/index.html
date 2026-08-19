@@ -73,18 +73,6 @@
     </div>
   </header>
 
-  <!-- The set being worked through, and how far along it is. Sticky, so it
-       stays answerable while scrolling the path. -->
-  <button class="unit" id="unitBanner" type="button" aria-haspopup="dialog">
-    <span class="unit-icon" id="unitIcon"></span>
-    <span class="unit-text">
-      <span class="unit-label">Word set</span>
-      <span class="unit-name" id="unitName">—</span>
-    </span>
-    <span class="unit-count" id="unitCount">0/0</span>
-    <span class="unit-switch" id="unitSwitch"></span>
-  </button>
-
   <div class="portal-body scrolls">
     <!-- One node per batch of ten words. Tapping the live one starts recording. -->
     <div class="path" id="path"></div>
@@ -92,21 +80,10 @@
   </div>
 
   <nav class="tabbar">
-    <button class="tab is-on" id="tabLearn" type="button"><span id="tabLearnIcon"></span>Learn</button>
-    <button class="tab" id="tabSets" type="button"><span id="tabSetsIcon"></span>Sets</button>
+    <button class="tab is-on" id="tabLearn" type="button"><span id="tabLearnIcon"></span>Contribute</button>
     <button class="tab" id="tabYou" type="button"><span id="tabYouIcon"></span>You</button>
   </nav>
 </section>
-
-<!-- The full list of sets, on request rather than on the home screen -->
-<div class="scrim" id="setsScrim" hidden></div>
-<aside class="sheet-panel" id="setsPanel" role="dialog" aria-modal="true" aria-label="Word sets" hidden>
-  <div class="panel-head">
-    <h2>Word sets</h2>
-    <button class="icon-btn" id="btnCloseSets" type="button" aria-label="Close"></button>
-  </div>
-  <div class="panel-body" id="packGrid"></div>
-</aside>
 
 <!-- ══ SESSION ════════════════════════════════════════════════════════════ -->
 <section class="screen" id="screen-play" hidden>

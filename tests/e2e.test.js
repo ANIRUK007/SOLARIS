@@ -194,29 +194,27 @@ const walk = (dir) => fs.existsSync(dir)
     check('there is no separate speaker field — the contributor is the account',
       await page.evaluate(() => !document.querySelector('#portal-speaker')));
 
-    // The home screen shows one set's path, not all fifteen — the full list is
-    // a reference behind the Sets tab.
-    check('the home screen names the set being worked through',
-      (await page.textContent('#unitName')).trim().length > 1,
-      await page.textContent('#unitName'));
+    // The map is the whole archive: one road, a section per word set.
+    const bands = await page.evaluate(() =>
+      [...document.querySelectorAll('#path .section-band .band-no')].map(e => e.textContent.trim()));
+    check('every word set appears as a section of the map',
+      bands.length === 15, `${bands.length} sections: ${bands.slice(0, 3).join(', ')}…`);
+    check('the sections are named after the word sets',
+      bands[0] === 'Places' && bands.includes('Animals'), bands.slice(0, 3).join(', '));
 
     // The categories need a token, so they cannot be fetched before sign-in.
     // They used to be, which left the map empty for anyone who signed in after
     // the page had loaded — the request 401'd and nothing asked again.
     check('the map is populated straight after signing in',
-      (await page.textContent('#unitName')).trim() !== '—' &&
-      !(await page.textContent('#unitCount')).includes('0/0'),
-      `${await page.textContent('#unitName')} ${await page.textContent('#unitCount')}`);
+      await page.evaluate(() => document.querySelectorAll('#path .node').length) > 0);
 
+    // 1,482 words at five per tile.
     const nodes = await page.evaluate(() => document.querySelectorAll('#path .node').length);
-    check('the path has one node per batch of ten words', nodes >= 8, `found ${nodes} nodes`);
+    check('there is a tile for every five words in the archive',
+      nodes === 297, `found ${nodes} tiles`);
 
-    const bands = await page.evaluate(() => document.querySelectorAll('#path .section-band').length);
-    check('the map is broken into sections rather than one long column',
-      bands === Math.ceil(nodes / 5), `${bands} bands for ${nodes} nodes`);
-
-    check('each section band says which words it covers',
-      /Words \d+–\d+/.test(await page.textContent('#path .section-band')),
+    check('each section says how many words its set holds',
+      /\d+ words/.test(await page.textContent('#path .section-band')),
       await page.textContent('#path .section-band'));
 
     check('a road is drawn between the tiles',
@@ -249,24 +247,10 @@ const walk = (dir) => fs.existsSync(dir)
     check('the live node is the one that invites a start',
       await page.evaluate(() => !!document.querySelector('#path .node.live .node-flag')));
 
-    await page.click('#tabSets');
-    await page.waitForTimeout(450);
-    const packCount = await page.evaluate(() => document.querySelectorAll('#packGrid .pack').length);
-    check('every category is listed behind the Sets tab', packCount === 15, `found ${packCount}`);
+    check('there is no separate sets tab — the sets are the map',
+      await page.evaluate(() => !document.querySelector('#tabSets')));
 
-    check('each set row shows how much of it is done',
-      (await page.textContent('#packGrid .pack .pack-meta')).match(/^0\/\d+$/) !== null,
-      await page.textContent('#packGrid .pack .pack-meta'));
 
-    // Picking a set points the path at it rather than starting to record —
-    // choosing and committing stay separate.
-    const chosen = await page.textContent('#packGrid .pack:nth-child(2) .pack-name');
-    await page.click('#packGrid .pack:nth-child(2)');
-    await page.waitForTimeout(500);
-    check('choosing a set points the path at it without starting a session',
-      (await page.textContent('#unitName')).trim() === chosen.trim() &&
-      await page.isVisible('#screen-portal'),
-      `${await page.textContent('#unitName')} vs ${chosen}`);
 
     const portalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -278,11 +262,9 @@ const walk = (dir) => fs.existsSync(dir)
     // Sixty words answered the way the app answers them, so the map has real
     // progress behind it rather than a number poked into the page.
     await page.evaluate(async () => {
-      // The set the map is showing, not whichever comes first in the list.
-      const shown = document.querySelector('#unitName').textContent.trim();
+      // The first section of the map, which is where the road starts.
       const r = await window.SolarisAuth.fetch('/api/words/categories');
-      const cats = (await r.json()).categories;
-      const set = cats.find(c => c.name === shown) || cats[0];
+      const set = (await r.json()).categories[0];
 
       for (let round = 0; round < 2; round++) {
         const b = await window.SolarisAuth.fetch(
@@ -321,7 +303,7 @@ const walk = (dir) => fs.existsSync(dir)
     check('returning scrolls to the tile after the last one contributed',
       resumed.ok && resumed.scrollTop > 0, JSON.stringify(resumed));
     check('the tiles already answered are marked done',
-      resumed.done === 6, `${resumed.done} done`);
+      resumed.done === 12, `${resumed.done} done`);
     check('the live tile is the one straight after the finished ones',
       resumed.index === resumed.done, `live at ${resumed.index}, ${resumed.done} done`);
 
@@ -337,8 +319,7 @@ const walk = (dir) => fs.existsSync(dir)
       (await page.textContent('#instruction')).includes('Banjara'));
 
     const segCount = await page.evaluate(() => document.querySelectorAll('#segbar .seg').length);
-    check('the session is a batch of prompts, not the whole category',
-      segCount === 10, `found ${segCount} segments`);
+    check('a sitting is one tile: five prompts', segCount === 5, `found ${segCount} segments`);
 
     // The words handed out must come from the database, not be invented.
     const promptId = await page.evaluate(() => window.__solarisGame.queue[0].id);
@@ -537,16 +518,12 @@ const walk = (dir) => fs.existsSync(dir)
     // answered, so both count as done and neither comes back next session.
     // Everything answered so far, read back from the server rather than from
     // anything held on the device.
-    await page.click('#tabSets');
-    await page.waitForTimeout(450);
     const answered = await page.evaluate(() =>
-      [...document.querySelectorAll('#packGrid .pack .pack-meta')]
+      [...document.querySelectorAll('#path .section-band .band-count')]
         .map(e => Number(e.textContent.split('/')[0]))
         .reduce((a, b) => a + b, 0));
-    check('the sets list reflects the words answered, read back from the server',
-      answered >= 11, `totals ${answered}`);
-    await page.click('#btnCloseSets');
-    await page.waitForTimeout(400);
+    check('the map reflects the words answered, read back from the server',
+      answered >= 6, `totals ${answered}`);
 
     // Only recordings are credited; skips are answers, not contributions.
     await page.click('#btnProfile');

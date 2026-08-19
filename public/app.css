@@ -1240,50 +1240,7 @@ button { font-family: inherit; touch-action: manipulation; }
 /* ── UNIT BANNER ───────────────────────────────────────────────────────────── */
 /* Which set is being worked through, and how far along. Sticky, because it is
    the question the path below keeps raising. */
-.unit {
-  position: sticky;
-  top: 0;
-  z-index: 11;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  text-align: left;
-  padding: 13px 14px;
-  margin-bottom: 6px;
-  border: none;
-  border-radius: var(--r);
-  background: var(--green);
-  color: #fff;
-  box-shadow: 0 var(--press) 0 var(--green-d);
-  cursor: pointer;
-  transition: transform .05s ease, box-shadow .05s ease;
-}
-.unit:active { transform: translateY(var(--press)); box-shadow: 0 0 0 var(--green-d); }
 
-.unit-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; }
-.unit-icon .ico { width: 26px; height: 26px; }
-.unit-text { flex: 1; min-width: 0; }
-.unit-label {
-  display: block;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, .82);
-}
-.unit-name {
-  display: block;
-  font-size: 17px;
-  font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.unit-count { font-family: var(--mono); font-size: 13px; font-weight: 800; color: rgba(255, 255, 255, .92); flex-shrink: 0; }
-.unit-switch { display: grid; place-items: center; width: 26px; flex-shrink: 0; }
-.unit-switch .ico { width: 20px; height: 20px; }
 
 /* ── THE PATH ──────────────────────────────────────────────────────────────── */
 /* A batch of ten words per node, laid out as a winding trail rather than a
@@ -1413,7 +1370,7 @@ button { font-family: inherit; touch-action: manipulation; }
 .tabbar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 4px;
   border-top: var(--bd) solid var(--line);
   background: var(--card);
@@ -1448,28 +1405,7 @@ button { font-family: inherit; touch-action: manipulation; }
 /* ── SETS PANEL ────────────────────────────────────────────────────────────── */
 /* The full fifteen, on request. Off the home screen entirely: a list of
    everything is a reference, not a first thing to read. */
-.sheet-panel {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 51;
-  max-height: 84dvh;
-  display: flex;
-  flex-direction: column;
-  background: var(--card) 40%, var(--paper));
-  border-top: var(--bd-hi) solid var(--line);
-  border-top-left-radius: var(--r-xl);
-  border-top-right-radius: var(--r-xl);
-  box-shadow: 0 -24px 60px -20px var(--line);
-  transform: translateY(102%);
-  transition: transform .34s cubic-bezier(.22, 1, .36, 1);
-  padding: 18px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
-}
-.sheet-panel.show { transform: translateY(0); }
-.sheet-panel[hidden] { display: none; }
 
-.panel-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; flex-shrink: 0; }
-.panel-head h2 { flex: 1; font-size: 19px; font-weight: 800; }
-.panel-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
 
 /* ── SECTION BANDS ─────────────────────────────────────────────────────────── */
 /* A hundred words is ten tiles in one column — a scroll with no landmarks.
@@ -1477,8 +1413,8 @@ button { font-family: inherit; touch-action: manipulation; }
    where you are without counting circles. */
 .section-band {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   width: 100%;
   margin: 10px 0 22px;
   padding: 12px 14px;
@@ -1550,3 +1486,25 @@ button { font-family: inherit; touch-action: manipulation; }
 /* The section band spans the column, so the road passes behind it rather than
    being interrupted by it. */
 .section-band { position: relative; z-index: 1; }
+
+/* The band names a word set, so it wears that set's icon. */
+.band-icon {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  color: var(--ink-3);
+}
+.band-icon .ico { width: 22px; height: 22px; }
+.band-text { flex: 1; min-width: 0; }
+.band-no { display: block; }
+.band-range { display: block; margin-top: 1px; }
+
+.section-band.done .band-icon {
+  background: var(--card);
+  border-color: var(--green);
+  color: var(--green-ink);
+}
