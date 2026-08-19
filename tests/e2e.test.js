@@ -194,13 +194,14 @@ const walk = (dir) => fs.existsSync(dir)
     check('there is no separate speaker field — the contributor is the account',
       await page.evaluate(() => !document.querySelector('#portal-speaker')));
 
-    // The map is the whole archive: one road, a section per word set.
+    // The map is one road through the archive, but it only runs as far as the
+    // section being worked on. Drawing all fifteen at once is 297 tiles of
+    // scrolling with the one that matters buried in it.
     const bands = await page.evaluate(() =>
       [...document.querySelectorAll('#path .section-band .band-no')].map(e => e.textContent.trim()));
-    check('every word set appears as a section of the map',
-      bands.length === 15, `${bands.length} sections: ${bands.slice(0, 3).join(', ')}…`);
-    check('the sections are named after the word sets',
-      bands[0] === 'Places' && bands.includes('Animals'), bands.slice(0, 3).join(', '));
+    check('the map runs only to the end of the section being worked on',
+      bands.length === 1, `${bands.length} sections drawn: ${bands.slice(0, 3).join(', ')}`);
+    check('the sections are named after the word sets', bands[0] === 'Places', bands.join(', '));
 
     // The categories need a token, so they cannot be fetched before sign-in.
     // They used to be, which left the map empty for anyone who signed in after
@@ -208,10 +209,73 @@ const walk = (dir) => fs.existsSync(dir)
     check('the map is populated straight after signing in',
       await page.evaluate(() => document.querySelectorAll('#path .node').length) > 0);
 
-    // 1,482 words at five per tile.
+    // The open section holds 100 words, at five per tile.
     const nodes = await page.evaluate(() => document.querySelectorAll('#path .node').length);
-    check('there is a tile for every five words in the archive',
-      nodes === 297, `found ${nodes} tiles`);
+    check('there is a tile for every five words in the open section',
+      nodes === 20, `found ${nodes} tiles`);
+
+    // ── The gate ─────────────────────────────────────────────────────────────
+    // The road has to end somewhere the user understands. A lock that names
+    // what is behind it reads as a door; one that does not reads as a wall.
+    const gate = await page.evaluate(() => {
+      const g = document.querySelector('#path .gate');
+      if (!g) return null;
+      const nodes = [...document.querySelectorAll('#path .node')];
+      return {
+        title: g.querySelector('.gate-title').textContent.trim(),
+        note: g.querySelector('.gate-note').textContent.trim(),
+        count: g.querySelector('.gate-count').textContent.trim(),
+        hasLock: !!g.querySelector('.gate-lock svg'),
+        // It closes the road: nothing may be drawn below it.
+        last: g.getBoundingClientRect().top > nodes[nodes.length - 1].getBoundingClientRect().top,
+      };
+    });
+
+    check('the road ends at a locked gate', !!gate && gate.last, JSON.stringify(gate));
+    check('the gate says how many sections are still locked',
+      gate && gate.title === '14 more sections locked', gate && gate.title);
+    check('the gate names what opens it and what is behind it',
+      gate && /Finish Places to unlock \w+\./.test(gate.note), gate && gate.note);
+    check('the gate says how much of this section is left',
+      gate && gate.count === '100 words to go', gate && gate.count);
+    check('the gate is drawn with a lock', gate && gate.hasLock);
+
+    // Pushing against the gate must do something. Scrolling into a wall that
+    // does not move is indistinguishable from the app having frozen.
+    const shook = await page.evaluate(async () => {
+      const body = document.querySelector('#screen-portal .portal-body');
+      const before = body.scrollHeight;
+      body.scrollTop = body.scrollHeight;
+      await new Promise(r => setTimeout(r, 120));
+
+      body.dispatchEvent(new WheelEvent('wheel', { deltaY: 90, bubbles: true }));
+      await new Promise(r => setTimeout(r, 60));
+      const rattling = document.querySelector('#path .gate').classList.contains('rattle');
+
+      await new Promise(r => setTimeout(r, 700));
+      return {
+        rattling,
+        settled: !document.querySelector('#path .gate').classList.contains('rattle'),
+        // The gate is what ends the scroll, so it cannot have grown.
+        height: body.scrollHeight === before,
+      };
+    });
+
+    check('pushing past the gate rattles it', shook.rattling, JSON.stringify(shook));
+    check('the rattle stops on its own', shook.settled);
+    check('there is nothing past the gate to scroll into', shook.height);
+
+    // Fifteen sections would be far taller than this; the cap is what makes the
+    // scroll finite.
+    const reach = await page.evaluate(() => {
+      const body = document.querySelector('#screen-portal .portal-body');
+      return Math.round(body.scrollHeight / body.clientHeight);
+    });
+    check('the map is a few screens long, not a hundred', reach > 1 && reach < 12,
+      `${reach} screens of scroll`);
+
+    await page.evaluate(() => { document.querySelector('#screen-portal .portal-body').scrollTop = 0; });
+    await page.waitForTimeout(150);
 
     check('each section says how many words its set holds',
       /\d+ words/.test(await page.textContent('#path .section-band')),
@@ -222,9 +286,11 @@ const walk = (dir) => fs.existsSync(dir)
 
     // A fixed pattern per section made the second half look like the first
     // stamped again.
+    // The tiles carry the offset now, not their rows — a row is full width, so
+    // shifting it was what let the page be swiped sideways.
     const offsets = await page.evaluate(() =>
-      [...document.querySelectorAll('#path .node-row')]
-        .map(r => Math.round(r.getBoundingClientRect().left)));
+      [...document.querySelectorAll('#path .node')]
+        .map(n => Math.round(n.getBoundingClientRect().left)));
     const repeats = offsets.slice(0, 5).every((v, i) => Math.abs(v - offsets[5 + i]) < 3);
     check('the road wanders rather than repeating the same shape per section',
       !repeats, `offsets: ${offsets.join(', ')}`);
@@ -255,6 +321,46 @@ const walk = (dir) => fs.existsSync(dir)
     const portalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check('no horizontal overflow on the portal', portalOverflow <= 0, `overflows by ${portalOverflow}px`);
+
+    // ── One axis only, on every size of phone ────────────────────────────────
+    // The map wanders sideways by design, so anything that overhangs turns the
+    // page into something that can be swiped horizontally.
+    const sizes = [
+      { w: 320, h: 568, name: 'iPhone SE (1st gen)' },
+      { w: 360, h: 740, name: 'common Android' },
+      { w: 390, h: 844, name: 'iPhone 13' },
+      { w: 430, h: 932, name: 'iPhone Pro Max' },
+    ];
+
+    for (const size of sizes) {
+      await page.setViewportSize({ width: size.w, height: size.h });
+      await page.waitForTimeout(350);
+
+      const axis = await page.evaluate(() => {
+        const body = document.querySelector('#screen-portal .portal-body');
+        const doc = document.documentElement;
+        const tiles = [...document.querySelectorAll('#path .node')];
+        const flags = [...document.querySelectorAll('#path .node-flag')];
+
+        const widest = [...tiles, ...flags].reduce((worst, el) => {
+          const r = el.getBoundingClientRect();
+          return Math.max(worst, -r.left, r.right - window.innerWidth);
+        }, 0);
+
+        return {
+          page: doc.scrollWidth - doc.clientWidth,
+          scroller: body.scrollWidth - body.clientWidth,
+          overhang: Math.round(widest),
+        };
+      });
+
+      check(`no sideways scroll at ${size.w}px (${size.name})`,
+        axis.page <= 0 && axis.scroller <= 0 && axis.overhang <= 0,
+        `page ${axis.page}, scroller ${axis.scroller}, overhang ${axis.overhang}`);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
 
     await page.screenshot({ path: path.join(SHOTS, '02-portal.png'), fullPage: true });
 

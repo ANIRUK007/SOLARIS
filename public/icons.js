@@ -46,6 +46,7 @@
     rotate: '<path d="M3.8 12a8.2 8.2 0 1 0 2.6-6"/><path d="M3.4 3.6v4.6h4.6"/>',
     ban: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
     close: '<path d="M6 6l12 12"/><path d="M18 6 6 18"/>',
+    lock: '<rect x="4.5" y="10.2" width="15" height="10.3" rx="2.4"/><path d="M8.2 10.2V7.6a3.8 3.8 0 0 1 7.6 0v2.6"/><path d="M12 14.2v2.4"/>',
     chevron: '<path d="M9.5 5.5 16 12l-6.5 6.5"/>',
     power: '<path d="M12 3.4v8"/><path d="M6.9 6.6a7.6 7.6 0 1 0 10.2 0"/>',
     user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0"/>',

@@ -307,25 +307,35 @@
   }
 
   /**
-   * Draw the whole archive as one road.
+   * Draw the archive as one road, up to the section being worked on.
    *
    * A section is a word set, in the order the archive lists them, and each set
    * contributes its own run of tiles. There is no set to choose any more: the
    * map is everything, and where you are in it is a position rather than a
    * selection.
+   *
+   * The road stops at the end of the first unfinished section. Fifteen sections
+   * drawn at once is nine hundred tiles of scrolling with no reason to prefer
+   * any of them, and the one that matters — the next tile — is buried in it.
+   * Ending the map at a locked gate makes the scroll finite, gives finishing a
+   * section a reward, and answers "how much is left" with a number instead of a
+   * thumb.
    */
   function paintPath() {
     const path = $('path');
     path.innerHTML = '';
     if (!packs.length) return;
 
-    // Keep the wander inside the screen: half the width, less the tile and a
-    // margin, so no tile ever runs off the edge on a narrow phone.
-    const amplitude = Math.max(28, Math.min(96, path.clientWidth / 2 - 74));
+    // Keep the wander inside the screen on any phone: half the column, less
+    // half the widest thing a tile carries — its Start flag, which is wider
+    // than the tile — and a margin. On a 320px screen this lands around 40px;
+    // on a large one it is capped so the road does not become a zigzag.
+    const amplitude = Math.max(18, Math.min(92, path.clientWidth / 2 - 84));
     let tileIndex = 0;          // counts across sections, so the road is one road
     let liveFound = false;
 
-    for (const pack of packs) {
+    for (let p = 0; p < packs.length; p++) {
+      const pack = packs[p];
       const done = packDone(pack);
       const total = pack.count;
       const tiles = Math.ceil(total / CONFIG.batchSize);
@@ -346,7 +356,6 @@
       for (let i = 0; i < tiles; i++) {
         const row = document.createElement('div');
         row.className = 'node-row';
-        row.style.transform = `translateX(${tileOffset(tileIndex, amplitude, phase).toFixed(1)}px)`;
 
         // The first unfinished tile anywhere on the map is the live one;
         // everything after it is ahead, even in a set already started.
@@ -364,6 +373,12 @@
           ? `${pack.name}, words ${from} to ${to}, recorded`
           : `Record ${pack.name}, words ${from} to ${to}`);
 
+        // The offset goes on the tile, not on its row. A row is the full width
+        // of the column, so shifting the row pushed its edge past the screen
+        // and the whole page could be swiped sideways — the tile itself is
+        // only as wide as it looks.
+        node.style.transform = `translateX(${tileOffset(tileIndex, amplitude, phase).toFixed(1)}px)`;
+
         node.innerHTML = (isLive ? '<span class="node-flag">Start</span>' : '') +
           ico(isDone ? 'check' : 'mic');
 
@@ -371,6 +386,14 @@
         row.appendChild(node);
         path.appendChild(row);
         tileIndex++;
+      }
+
+      // This section is not finished, so the road ends here. Everything past
+      // the gate exists — it is just not reachable until this one is done.
+      if (done < total) {
+        const locked = packs.length - p - 1;
+        if (locked > 0) path.appendChild(gateFor(pack, packs[p + 1], locked, done, total));
+        break;
       }
     }
 
@@ -381,11 +404,66 @@
       path.appendChild(end);
     }
 
+    armGate();
+
     // Both need the tiles laid out before they can measure.
     requestAnimationFrame(() => {
       drawTrail();
       scrollToLive();
     });
+  }
+
+  /**
+   * The locked end of the road.
+   *
+   * It names what is behind it rather than only saying "locked", because a lock
+   * with nothing behind it reads as a wall and a lock with a name reads as a
+   * door. The bar is the section's own progress, so the thing that opens the
+   * gate is the thing being measured.
+   */
+  function gateFor(pack, next, locked, done, total) {
+    const gate = document.createElement('div');
+    gate.className = 'gate';
+    gate.id = 'gate';
+    gate.innerHTML = `
+      <span class="gate-lock">${ico('lock')}</span>
+      <p class="gate-title">${locked} more ${locked === 1 ? 'section' : 'sections'} locked</p>
+      <p class="gate-note">Finish ${escapeHtml(pack.name)} to unlock ${escapeHtml(next.name)}.</p>
+      <div class="gate-bar"><i style="width:${Math.round((done / total) * 100)}%"></i></div>
+      <p class="gate-count">${total - done} words to go</p>`;
+    return gate;
+  }
+
+  /**
+   * Push back when somebody scrolls past the gate.
+   *
+   * The map simply ends, so there is nothing to scroll into and the gesture
+   * does nothing at all — which reads as the app having frozen. A short rattle
+   * says the wall is deliberate. Bound once; the map is repainted often.
+   */
+  let gateArmed = false;
+  function armGate() {
+    if (gateArmed) return;
+    const body = document.querySelector('#screen-portal .portal-body');
+    if (!body) return;
+    gateArmed = true;
+
+    let shaking = false;
+    const atEnd = () => body.scrollHeight - body.scrollTop - body.clientHeight < 4;
+
+    const rattle = (pushingDown) => {
+      const gate = document.getElementById('gate');
+      if (!gate || !pushingDown || shaking || !atEnd()) return;
+      shaking = true;
+      gate.classList.add('rattle');
+      setTimeout(() => { gate.classList.remove('rattle'); shaking = false; }, 560);
+    };
+
+    body.addEventListener('wheel', e => rattle(e.deltaY > 0), { passive: true });
+
+    let startY = 0;
+    body.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+    body.addEventListener('touchmove', e => rattle(e.touches[0].clientY < startY - 8), { passive: true });
   }
 
   /**
