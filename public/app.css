@@ -1307,14 +1307,6 @@ button { font-family: inherit; touch-action: manipulation; }
      on a narrow screen. */
   transition: transform .2s;
 }
-.node-row.off-0  { transform: translateX(0); }
-.node-row.off-1  { transform: translateX(46px); }
-.node-row.off-2  { transform: translateX(66px); }
-.node-row.off-3  { transform: translateX(46px); }
-.node-row.off-4  { transform: translateX(0); }
-.node-row.off-5  { transform: translateX(-46px); }
-.node-row.off-6  { transform: translateX(-66px); }
-.node-row.off-7  { transform: translateX(-46px); }
 
 .node {
   position: relative;
@@ -1484,3 +1476,56 @@ button { font-family: inherit; touch-action: manipulation; }
 .panel-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; flex-shrink: 0; }
 .panel-head h2 { flex: 1; font-size: 19px; font-weight: 800; }
 .panel-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+
+/* ── SECTION BANDS ─────────────────────────────────────────────────────────── */
+/* A hundred words is ten tiles in one column — a scroll with no landmarks.
+   Every five tiles gets a band, so the map reads as chapters and you can see
+   where you are without counting circles. */
+.section-band {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 22px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+}
+.section-band:first-child { margin-top: 0; }
+
+.band-no {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.band-range {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.band-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-3);
+}
+
+/* A finished chapter says so in the one colour that means finished. */
+.section-band.done {
+  background: var(--green-l);
+  border-color: var(--green);
+}
+.section-band.done .band-no,
+.section-band.done .band-count { color: var(--green-ink); }
+.section-band.done .band-range { color: var(--green-ink); opacity: .8; }
+
+/* Five offsets, one per tile in a section, so each chapter has the same shape
+   instead of the trail drifting off one side. */
+.node-row.off-0 { transform: translateX(0); }
+.node-row.off-1 { transform: translateX(52px); }
+.node-row.off-2 { transform: translateX(72px); }
+.node-row.off-3 { transform: translateX(52px); }
+.node-row.off-4 { transform: translateX(0); }

@@ -19,6 +19,7 @@
     minDuration: 0.6,
     baseXp: 10,
     batchSize: 10,          // prompts handed out per sitting
+    tilesPerSection: 5,     // tiles between one section band and the next
   };
 
   const $ = (id) => document.getElementById(id);
@@ -146,6 +147,7 @@
         await SolarisAuth.login(username, password);
       }
       $('auth-pass').value = '';
+      await loadPacks();          // now that there is a token to fetch with
       show('portal');
     } catch (err) {
       showError('authErr', err.message);
@@ -174,7 +176,11 @@
   async function decideStartScreen() {
     if (SolarisAuth.isSignedIn) {
       await SolarisAuth.refresh();
-      if (SolarisAuth.isSignedIn) { show('portal'); return; }
+      if (SolarisAuth.isSignedIn) {
+        await loadPacks();
+        show('portal');
+        return;
+      }
     }
 
     // With no accounts on the server yet, the first visitor is setting it up,
@@ -236,8 +242,29 @@
     const finished = Math.floor(done / CONFIG.batchSize);
 
     for (let i = 0; i < nodes; i++) {
+      // A hundred words is ten tiles in one unbroken column, which reads as a
+      // scroll with no landmarks. Breaking it every five gives the map
+      // chapters, and a place to see how far along the set you are.
+      if (i % CONFIG.tilesPerSection === 0) {
+        const sectionNo = Math.floor(i / CONFIG.tilesPerSection) + 1;
+        const from = i * CONFIG.batchSize + 1;
+        const to = Math.min((i + CONFIG.tilesPerSection) * CONFIG.batchSize, total);
+        const sectionDone = Math.max(0, Math.min(done - i * CONFIG.batchSize,
+          (to - from + 1)));
+
+        const header = document.createElement('div');
+        header.className = 'section-band' + (sectionDone >= (to - from + 1) ? ' done' : '');
+        header.innerHTML = `
+          <span class="band-no">Section ${sectionNo}</span>
+          <span class="band-range">Words ${from}–${to}</span>
+          <span class="band-count">${sectionDone}/${to - from + 1}</span>`;
+        path.appendChild(header);
+      }
+
       const row = document.createElement('div');
-      row.className = `node-row off-${i % 8}`;
+      // The offsets restart with each section, so every chapter has the same
+      // shape rather than the trail drifting off one side.
+      row.className = `node-row off-${i % CONFIG.tilesPerSection}`;
 
       const node = document.createElement('button');
       node.type = 'button';
@@ -269,7 +296,16 @@
     }
   }
 
+  /**
+   * Fetch the categories for the signed-in contributor.
+   *
+   * This needs a token, so it cannot run before sign-in — it used to, which
+   * left the map empty for anyone who signed in after the page loaded: the
+   * request 401'd, the list stayed empty, and nothing ever asked again.
+   */
   async function loadPacks() {
+    if (!SolarisAuth.isSignedIn) { packs = []; return; }
+
     try {
       const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/words/categories', { cache: 'no-store' });
       if (!r.ok) throw new Error(`the word list returned ${r.status}`);
@@ -430,8 +466,12 @@
     }
   }
 
-  function paintPortal() {
+  async function paintPortal() {
     paintProfile();
+
+    // Whatever route got us here, the portal cannot draw without them.
+    if (!packs.length) await loadPacks();
+
     if ($('packGrid').children.length) refreshPackProgress();
     else renderPacks();
     setCurrentSet(currentSet && packs.find(p => p.id === currentSet.id) || chooseSet());
@@ -1391,9 +1431,8 @@
     $('trophy').innerHTML = ico('award');
 
     SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
-    loadPacks();
     checkServer();
-    decideStartScreen();
+    decideStartScreen();     // loads the categories once there is a session
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

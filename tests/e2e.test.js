@@ -200,8 +200,24 @@ const walk = (dir) => fs.existsSync(dir)
       (await page.textContent('#unitName')).trim().length > 1,
       await page.textContent('#unitName'));
 
+    // The categories need a token, so they cannot be fetched before sign-in.
+    // They used to be, which left the map empty for anyone who signed in after
+    // the page had loaded — the request 401'd and nothing asked again.
+    check('the map is populated straight after signing in',
+      (await page.textContent('#unitName')).trim() !== '—' &&
+      !(await page.textContent('#unitCount')).includes('0/0'),
+      `${await page.textContent('#unitName')} ${await page.textContent('#unitCount')}`);
+
     const nodes = await page.evaluate(() => document.querySelectorAll('#path .node').length);
     check('the path has one node per batch of ten words', nodes >= 8, `found ${nodes} nodes`);
+
+    const bands = await page.evaluate(() => document.querySelectorAll('#path .section-band').length);
+    check('the map is broken into sections rather than one long column',
+      bands === Math.ceil(nodes / 5), `${bands} bands for ${nodes} nodes`);
+
+    check('each section band says which words it covers',
+      /Words \d+–\d+/.test(await page.textContent('#path .section-band')),
+      await page.textContent('#path .section-band'));
 
     check('exactly one node is the live one',
       await page.evaluate(() => document.querySelectorAll('#path .node.live').length) === 1);
