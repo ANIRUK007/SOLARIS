@@ -1,73 +1,93 @@
 # Deploying SOLARIS
 
-The server is plain Node with no dependencies, so deployment is mostly a
-question of where the credentials live and who terminates TLS.
+The host is not decided yet, so this is written the other way round: what any
+platform has to give the app, and then the shortest path on each of the usual
+ones. The app is plain Node with no dependencies and no build step, so there is
+very little to get wrong.
 
-Two things are non-negotiable:
+## What the app needs from a host
 
-- **HTTPS.** Browsers refuse microphone access on an insecure origin. Without
-  it the app loads and then cannot record, which is the worst possible failure
-  because it looks like it works.
-- **A tier that does not sleep.** A sleeping instance drops the request that
-  wakes it, and that request is somebody's recording.
+Four things, and only four.
 
-## Where the secrets go
+| | Why |
+| --- | --- |
+| **HTTPS, terminated for you** | Browsers refuse microphone access on an insecure origin. Without it the app loads and then cannot record — the worst failure, because it looks like it works. A self-signed certificate is not enough: every contributor taps through a warning, which teaches exactly the wrong instinct. |
+| **A tier that does not sleep** | An idling instance drops the request that wakes it, and that request is somebody's recording. |
+| **Two environment variables** | `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`. |
+| **A port and a health check** | It listens on `PORT` (default 3001) and answers `GET /health`. |
 
-This repository is public. Nothing secret is committed to it, and nothing
-secret should be — a `service_role` key in a public repo is scraped by bots
-within minutes, and it bypasses row-level security on every table in the
-project. Credentials are set on the platform instead, where they are injected
-at run time.
+Set `SOLARIS_TRUST_PROXY=true` **only** when something really is in front of the
+app — which is true on every managed platform below, and false on a plain
+`docker run`. The rate limiter counts per address; behind a load balancer every
+request otherwise looks like it came from the balancer. Set it where it is not
+true and anyone can spoof a header for a fresh quota, which is worse than no
+rate limiting because it looks like protection.
 
-| Secret | Where it is set | What it is |
-| --- | --- | --- |
-| `SUPABASE_URL` | Fly secrets / Render dashboard | The project URL |
-| `SUPABASE_SERVICE_KEY` | Fly secrets / Render dashboard | `service_role` key — full read/write, never send to a browser |
-| `FLY_API_TOKEN` | GitHub → Settings → Secrets → Actions | Ships code. Cannot read the archive. |
+## Where credentials go
 
-The GitHub repository secrets are only what CI needs to *deploy*. The app's own
-credentials are never handed to GitHub at all.
+**This repository is public. Nothing secret is committed to it, and nothing
+should be.** A `service_role` key here would be scraped by bots within minutes,
+and it bypasses row-level security on every table in the project — full read and
+write on the recordings and the account store. Deleting it later does not help;
+it stays in the history.
 
-## Fly.io
+Every platform below has a place to put environment variables. That is where
+they go, and they are injected at run time.
 
-```sh
-fly launch --no-deploy            # reads fly.toml; keep the app name "solaris"
-fly secrets set \
-  SUPABASE_URL=https://yourproject.supabase.co \
-  SUPABASE_SERVICE_KEY=sb_secret_...
-fly deploy
-```
-
-`fly.toml` already pins the region to Mumbai, forces HTTPS, keeps one machine
-running, and health-checks `/health`.
-
-After the first deploy, pushes to `main` deploy themselves — see
-`.github/workflows/deploy.yml`. Create the deploy token with
-`fly tokens create deploy -x 8760h` and paste it into the repository secret
-`FLY_API_TOKEN`.
+The two GitHub repository secrets already set (`SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY`) are there for CI to use if a deploy workflow ever needs
+them. They are not what the running app reads — the app reads whatever the host
+gives it.
 
 ## Render
 
-Connect the repository; `render.yaml` is read on its own. Set `SUPABASE_URL`
-and `SUPABASE_SERVICE_KEY` in the dashboard — both are marked `sync: false`
-precisely so they cannot be committed. Use a paid instance type; the free one
-sleeps.
+`render.yaml` is already in the repository and is read on its own.
 
-## Anything else that runs a container
+1. New → Web Service → connect `ANIRUK007/SOLARIS`.
+2. Set `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in the dashboard. Both are
+   marked `sync: false` in the file precisely so they cannot be committed.
+3. Pick a paid instance type. The free one sleeps.
+
+Deploys on every push once connected. TLS is automatic.
+
+## Railway, Koyeb, or anything Heroku-shaped
+
+Same shape: connect the repository, let it build the `Dockerfile`, set the two
+variables plus `SOLARIS_TRUST_PROXY=true`, point the health check at `/health`.
+Nothing in the app is specific to a platform.
+
+## Fly.io
+
+`fly.toml` is in the repository — Mumbai region, HTTPS forced, one machine kept
+running. Not currently in use, kept because it costs nothing to leave.
+
+```sh
+fly launch --no-deploy
+fly secrets set SUPABASE_URL=... SUPABASE_SERVICE_KEY=...
+fly deploy
+```
+
+## Your own server
 
 ```sh
 docker build -t solaris .
-docker run -p 3001:3001 \
-  -e SUPABASE_URL=... \
-  -e SUPABASE_SERVICE_KEY=... \
-  -e SOLARIS_TRUST_PROXY=true \
+docker run -d -p 3001:3001 \
+  -e SUPABASE_URL=https://yourproject.supabase.co \
+  -e SUPABASE_SERVICE_KEY=sb_secret_... \
   solaris
 ```
 
-Set `SOLARIS_TRUST_PROXY=true` **only** when something really is in front of
-the app. Trusting `X-Forwarded-For` on a directly exposed server lets anyone
-set the header and collect a fresh rate-limit quota per request, which is worse
-than no rate limiting because it looks like protection.
+This serves plain HTTP, so put a reverse proxy in front of it for the
+certificate. Caddy is the least work — two lines, and it gets and renews the
+certificate itself:
+
+```
+solaris.example.com {
+    reverse_proxy 127.0.0.1:3001
+}
+```
+
+Then add `-e SOLARIS_TRUST_PROXY=true`, because now there really is a proxy.
 
 ## First run against a new Supabase project
 
@@ -77,7 +97,9 @@ npm run migrate         # loads the 1,482 words and any local accounts
 npm run test:db         # verifies the schema against the real database
 ```
 
-Storage creates its own private `recordings` bucket on first write.
+Storage creates its own private `recordings` bucket on first write. Private
+always — consent to contribute to a language archive is not consent to be
+published.
 
 ## Access
 
@@ -101,7 +123,7 @@ them, and nothing can rebuild them.
 
 ## Rotating a credential
 
-Rotate at the provider, then `fly secrets set` the new value; the app restarts
-on its own. Any key that has ever been committed, pasted into a chat, or shown
-in a screen share must be treated as compromised — including the keys that were
-in `index.html` in this repository's history.
+Rotate at the provider, then update the variable on the host and restart. Any
+key that has ever been committed, pasted into a chat, or shown in a screen share
+must be treated as compromised — including the Sarvam and Groq keys that are
+still in this repository's history from when they were in `index.html`.

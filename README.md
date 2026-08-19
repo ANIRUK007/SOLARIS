@@ -345,15 +345,17 @@ Re-running skips what it already has, so an interrupted export continues.
 The app is plain Node with no dependencies and no build step, so the image is
 the runtime plus this repository.
 
-```bash
-# Fly.io — Mumbai region, closest to the fieldwork
-fly launch --no-deploy
-fly secrets set SUPABASE_URL=https://yourproject.supabase.co SUPABASE_SERVICE_KEY=sb_secret_...
-fly deploy
-```
+Any host that runs a container will do. `DEPLOY.md` has the steps for the
+usual ones; the whole of what a platform has to provide is two environment
+variables, a port, and TLS.
 
-Render reads `render.yaml`; set the two Supabase variables in its dashboard
-rather than in the file.
+```bash
+docker build -t solaris .
+docker run -p 3001:3001 \
+  -e SUPABASE_URL=https://yourproject.supabase.co \
+  -e SUPABASE_SERVICE_KEY=sb_secret_... \
+  solaris
+```
 
 Three things to get right whatever the platform:
 
