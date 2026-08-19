@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SOLARIS">
-  <rect width="512" height="512" rx="112" fill="#0b0420"/>
+  <rect width="512" height="512" rx="112" fill="#ffffff"/>
 
-  <!-- A semicolon: the mark that holds two clauses together rather than ending
-       one — which is what a pivot language does between Banjara and Telugu. -->
-  <circle cx="256" cy="176" r="42" fill="#ffc93c"/>
-  <circle cx="256" cy="312" r="42" fill="#ff2e63"/>
-  <path d="M256 350c0 44-18 76-52 100"
-        fill="none" stroke="#ff2e63" stroke-width="42" stroke-linecap="round"/>
+  <!-- A semicolon: the mark that joins two clauses rather than ending one,
+       which is what the Telugu prompt does with the Banjara answer. -->
+  <circle cx="256" cy="180" r="44" fill="#57c11f"/>
+  <circle cx="256" cy="316" r="44" fill="#57c11f"/>
+  <path d="M256 356c0 46-19 79-54 104"
+        fill="none" stroke="#57c11f" stroke-width="44" stroke-linecap="round"/>
 </svg>

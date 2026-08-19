@@ -1,132 +1,152 @@
 /* theme.css — the shared design system for SOLARIS.
  *
- * Three colours, one job each. That is the whole system:
+ * A light, high-contrast interface in the language-app idiom: white cards on
+ * paper grey, one saturated green for the action, chunky controls with a hard
+ * bottom edge that collapses when pressed.
  *
- *   gold     you — your level, XP, streak, and progress you have made
- *   crimson  record — the one physical act the app asks for
- *   lime     done — a take accepted, a set finished
+ * Why light, after this was dark: the people using it are recording outdoors in
+ * daylight, and a dark screen in sun keeps only the contrast it started with.
+ * White paper with near-black text is the highest-contrast thing a phone can
+ * show, and it is also what makes the green read as an instruction rather than
+ * as decoration.
  *
- * Nothing else carries meaning. The ground is a near-colourless violet-black
- * and every surface is a shade of it, so the three accents are the only
- * saturated things on screen and each one means exactly what it meant on the
- * last screen.
+ * Colour has one job each, and the set is small enough to hold:
  *
- * There used to be five accents, with word sets colour-coded through all of
- * them. Nobody holds fifteen colour meanings, so the colour said nothing and
- * only added noise; a set is identified by its icon and its name. Colour is
- * spent on state instead: a set you have started is gold, a set you have
- * finished is lime, one you have not touched is grey.
+ *   green    do this — record, continue, accepted
+ *   red      stop — recording in progress, take rejected
+ *   yellow   you — streak and XP, nothing else
+ *   blue     the prompt — the Telugu being asked for
+ *   grey     everything structural
  *
- * Every colour and shape primitive lives here; the two page stylesheets
- * consume these tokens and add layout only.
+ * Type is a system rounded stack. The obvious move here would be Nunito or
+ * Feather from a CDN, but the content policy allows `font-src 'self'` and the
+ * app has to open with no signal, so weight and letter-spacing do the work that
+ * a downloaded face would.
  */
 
 :root {
   /* ── Ground ──────────────────────────────────────────────────────────────── */
-  --bg-0:      #0b0420;   /* page background, near-black violet */
-  --bg-1:      #170a33;   /* raised surface                     */
-  --bg-2:      #241247;   /* card                               */
-  --bg-3:      #341c63;   /* hover, borders, active surface     */
-  --well:      #0a0320;   /* inputs and insets                  */
+  --paper:     #f7f7f7;   /* the page                            */
+  --card:      #ffffff;   /* anything raised off it              */
+  --line:      #e5e5e5;   /* borders, dividers, empty tracks     */
+  --line-2:    #d4d4d4;   /* the pressed edge under a grey card  */
 
-  /* ── Action colours ──────────────────────────────────────────────────────── */
-  --hot:       #ff2e63;   /* record: the one action             */
-  --hot-2:     #ff5c7c;   /* the light end of its gradient      */
-  --hot-d:     #b30d3c;   /* hard shadow beneath it             */
+  /* ── Ink ─────────────────────────────────────────────────────────────────── */
+  --ink:       #3c3c3c;   /* body and headings                   */
+  --ink-2:     #777777;   /* secondary                           */
+  --ink-3:     #afafaf;   /* disabled, placeholder, later        */
 
-  --lime:      #2be86b;   /* done: accepted, finished           */
-  --lime-2:    #5cff97;
-  --lime-d:    #12a244;
+  /* ── Do this ─────────────────────────────────────────────────────────────── */
+  --green:     #57c11f;
+  --green-d:   #479c15;   /* the hard edge beneath it            */
+  --green-l:   #d7f5c4;   /* tint, for a success surface         */
+  --green-ink: #3f8c12;   /* green text that still passes on white */
 
-  --gold:      #ffc93c;   /* you: level, XP, streak, progress   */
-  --gold-2:    #ffe08a;
-  --gold-d:    #c28a00;
+  /* ── Stop ────────────────────────────────────────────────────────────────── */
+  --red:       #e8443f;
+  --red-d:     #bf3430;
+  --red-l:     #ffe0df;
+  --red-ink:   #c8302b;
 
+  /* ── You ─────────────────────────────────────────────────────────────────── */
+  --gold:      #f5b800;
+  --gold-d:    #cc9700;
 
-  /* ── Text ────────────────────────────────────────────────────────────────── */
-  --text:      #ffffff;
-  --text-2:    #cdc2e8;   /* secondary, still high contrast     */
-  --text-3:    #8b7fa8;   /* de-emphasised only                 */
+  /* ── The prompt ──────────────────────────────────────────────────────────── */
+  --blue:      #2aa9e8;
+  --blue-d:    #1b86bb;
+  --blue-l:    #ddf4ff;
 
-  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+  /* Rounded first: on Apple devices this is SF Pro Rounded, which is the whole
+     personality of this kind of interface. Everywhere else the weight carries
+     it. */
+  --sans: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont,
+          'Segoe UI Variable Display', 'Segoe UI', Roboto, system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* ── Shape ───────────────────────────────────────────────────────────────── */
-  --r-sm: 12px;
-  --r:    18px;
-  --r-lg: 24px;
-  --r-xl: 30px;
+  --r-sm: 10px;
+  --r:    16px;
+  --r-lg: 20px;
+  --r-xl: 24px;
 
   --bd:    2px;
-  --bd-hi: 3px;
-  --press: 6px;           /* button depth; collapses when pressed */
+  --press: 4px;           /* the depth under a control           */
 
-  /* ── Safe areas ──────────────────────────────────────────────────────────── */
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
 
-  --tap: 52px;
+  --tap: 50px;
 }
 
-/* ── Chunky pressable button ────────────────────────────────────────────────
-   Gradient face, hard shadow for depth, coloured glow. Pressing collapses
-   the shadow and drops the face, which reads as a physical push and forgives
-   an imprecise tap. */
+/* ── The button ─────────────────────────────────────────────────────────────
+   A flat face with a hard edge underneath. Pressing removes the edge and drops
+   the face onto it, so the control behaves like a physical key: no gradient, no
+   glow, no shadow blur. The whole idiom rests on this one detail being right. */
 .btn {
-  --face-1: var(--hot-2);
-  --face-2: var(--hot);
-  --deep:   var(--hot-d);
-  --glow:   rgba(255, 46, 99, .45);
-  --on:     #ffffff;
+  --face: var(--green);
+  --deep: var(--green-d);
+  --on:   #ffffff;
 
   width: 100%;
-  min-height: 62px;
-  padding: 16px 20px;
+  min-height: 52px;
+  padding: 14px 20px;
   border: none;
   border-radius: var(--r);
-  background: linear-gradient(180deg, var(--face-1), var(--face-2));
+  background: var(--face);
   color: var(--on);
-  box-shadow: 0 var(--press) 0 var(--deep), 0 10px 26px -8px var(--glow);
+  box-shadow: 0 var(--press) 0 var(--deep);
   font-family: var(--sans);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: .06em;
+  letter-spacing: .04em;
   text-transform: uppercase;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, .18);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   touch-action: manipulation;
-  transition: transform .07s ease, box-shadow .07s ease, filter .15s;
+  transition: transform .05s ease, box-shadow .05s ease, filter .15s;
 }
 .btn:active:not(:disabled) {
   transform: translateY(var(--press));
-  box-shadow: 0 0 0 var(--deep), 0 4px 14px -6px var(--glow);
+  box-shadow: 0 0 0 var(--deep);
 }
-.btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: 0 var(--press) 0 var(--deep); }
-
-.btn-primary { --face-1: var(--lime-2);   --face-2: var(--lime);   --deep: var(--lime-d);   --glow: rgba(43, 232, 107, .45); --on: #04240f; }
-.btn-record  { --face-1: var(--hot-2);    --face-2: var(--hot);    --deep: var(--hot-d);    --glow: rgba(255, 46, 99, .45);  --on: #ffffff; }
-.btn-accent  { --face-1: var(--gold-2);   --face-2: var(--gold);   --deep: var(--gold-d);   --glow: rgba(255, 201, 60, .45); --on: #2b1a02; }
-
-/* Outline variant keeps the same footprint so button rows stay aligned. */
-.btn-ghost {
-  background: rgba(255, 255, 255, .04);
-  color: var(--text-2);
-  border: var(--bd) solid var(--bg-3);
+.btn:disabled {
+  background: var(--line);
+  color: var(--ink-3);
   box-shadow: none;
-  text-shadow: none;
+  cursor: not-allowed;
+}
+
+.btn-primary { --face: var(--green); --deep: var(--green-d); --on: #fff; }
+.btn-record  { --face: var(--green); --deep: var(--green-d); --on: #fff; }
+.btn-accent  { --face: var(--gold);  --deep: var(--gold-d);  --on: #fff; }
+.btn-danger  { --face: var(--red);   --deep: var(--red-d);   --on: #fff; }
+
+/* The quiet alternative. Grey text on white with a grey edge — present, but
+   never competing with the green. */
+.btn-ghost {
+  background: var(--card);
+  color: var(--ink-2);
+  border: var(--bd) solid var(--line);
+  box-shadow: 0 var(--press) 0 var(--line);
   font-size: 14px;
   min-height: var(--tap);
 }
 .btn-ghost:active:not(:disabled) {
-  transform: translateY(2px);
-  background: rgba(255, 255, 255, .09);
-  box-shadow: none;
+  transform: translateY(var(--press));
+  box-shadow: 0 0 0 var(--line);
+  background: var(--paper);
+}
+
+/* Keyboard focus has to survive a design that leans this hard on colour. */
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -612,10 +612,6 @@
     $('streakVal').textContent = G.streak;
     $('streakBox').classList.toggle('cold', !G.streak);
 
-    // The set's colour follows it into the session, so the screen belongs to
-    // the thing being recorded rather than looking the same for all 15.
-    $('screen-play').dataset.accent = pack.accent || 'gold';
-
     buildSegbar();
     show('play');
     renderPrompt(false);

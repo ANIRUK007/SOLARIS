@@ -118,6 +118,35 @@ dataset — the dataset gets copied and shared, and password hashes should not t
 The server stamps who recorded each session from the token, overwriting whatever the client
 claimed. Provenance the client can edit is not provenance.
 
+## The interface
+
+Light, high-contrast, in the idiom of a language-learning app: white cards on
+paper grey, one saturated green for the action, controls with a hard bottom edge
+that collapses when pressed.
+
+Light rather than dark, after a long stretch of dark: recording happens outdoors
+in daylight, and a dark screen in sun keeps only the contrast it started with.
+White with near-black text is the highest-contrast thing a phone can show.
+
+Colour has one job each, and the set is small enough to hold:
+
+| | |
+| --- | --- |
+| green | do this — record, continue, accepted |
+| red | stop — recording in progress, take rejected |
+| yellow | you — streak and XP, nothing else |
+| blue | the prompt — the Telugu being asked for |
+| grey | everything structural |
+
+The type is a system rounded stack. The obvious move would be Nunito or a
+similar rounded face from a CDN, but the content policy allows `font-src 'self'`
+and the app has to open with no signal, so weight and letter-spacing do the work
+a downloaded face would.
+
+The home screen is one set's path — a node per batch of ten words, exactly one
+of them live and labelled. The other fourteen sets are behind the Sets tab: a
+list of everything is a reference, not a first thing to read.
+
 ### What protects an account
 
 | | |
