@@ -428,6 +428,36 @@ button { font-family: inherit; touch-action: manipulation; }
   transition: border-color .15s, background .15s;
 }
 .field-group input:focus, .field-group select:focus { border-color: var(--blue); background: var(--card); }
+
+/* ── REVEAL ────────────────────────────────────────────────────────────────────
+   A password field with a button sitting in its right-hand end. The padding on
+   the input is what keeps the text from running under the button; without it a
+   long passphrase disappears beneath its own toggle. */
+.field-with-btn { position: relative; display: flex; }
+.field-with-btn input { padding-right: 56px; }
+
+.reveal {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 44px;                 /* a real tap target, not just the glyph */
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color .15s, background .15s;
+}
+.reveal:hover { color: var(--ink-2); }
+.reveal:active { background: var(--line); }
+/* Showing is a state, so it looks like one rather than reverting to grey. */
+.reveal[aria-pressed="true"] { color: var(--blue); }
+.reveal .ico { width: 21px; height: 21px; }
 .field-group select {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='9'><path d='M1.5 1.5l5 5 5-5' stroke='%232aa9e8' stroke-width='2.2' fill='none' stroke-linecap='round'/></svg>");
   background-repeat: no-repeat;

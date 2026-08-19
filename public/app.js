@@ -125,6 +125,40 @@
     clearError('authErr');
   }
 
+  /**
+   * Show or hide what has been typed into the password field.
+   *
+   * The bar here is ten characters, and a passphrase typed blind on a phone
+   * keyboard is how people end up picking something short enough to get right
+   * first time — the toggle is on the side of stronger passwords, not weaker
+   * ones. It reads back to a screen reader through aria-pressed, and it never
+   * survives leaving the screen: hideReveal() puts it back on sign-out and
+   * after a successful sign-in, so a phone handed to the next contributor
+   * cannot show the last one's password.
+   */
+  function setReveal(shown) {
+    const field = $('auth-pass');
+    const btn = $('btnReveal');
+    field.type = shown ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(shown));
+    btn.setAttribute('aria-label', shown ? 'Hide password' : 'Show password');
+    btn.setAttribute('title', shown ? 'Hide password' : 'Show password');
+    btn.innerHTML = ico(shown ? 'eye-off' : 'eye');
+  }
+
+  function toggleReveal() {
+    const field = $('auth-pass');
+    const shown = field.type === 'password';
+    // Typing continues where it left off; changing type moves the caret to the
+    // end otherwise, which is maddening halfway through a passphrase.
+    const at = field.selectionStart;
+    setReveal(shown);
+    field.focus();
+    try { field.setSelectionRange(at, at); } catch {}
+  }
+
+  function hideReveal() { setReveal(false); }
+
   async function submitAuth() {
     clearError('authErr');
     const username = $('auth-user').value.trim();
@@ -146,6 +180,7 @@
         await SolarisAuth.login(username, password);
       }
       $('auth-pass').value = '';
+      hideReveal();               // never leave it revealed for the next person
       await loadPacks();          // now that there is a token to fetch with
       show('portal');
     } catch (err) {
@@ -163,6 +198,7 @@
     closeDrawer();
     SolarisAuth.logout();
     authMode = 'login';
+    hideReveal();
     paintAuthMode();
     show('auth');
   }
@@ -1433,6 +1469,8 @@
       paintAuthMode();
     });
     $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+    $('btnReveal').addEventListener('click', toggleReveal);
+    hideReveal();               // draws the eye; the field starts masked
     $('btnSignOut').addEventListener('click', signOut);
     $('btnProfile').addEventListener('click', openDrawer);
     $('tabLearn').addEventListener('click', () => { closeDrawer(); setTab('learn'); });

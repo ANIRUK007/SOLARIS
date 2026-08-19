@@ -142,10 +142,49 @@ const walk = (dir) => fs.existsSync(dir)
       errors.splice(errors.indexOf(e), 1);
     }
 
+    // ── Showing the password ─────────────────────────────────────────────────
+    // Ten characters typed blind on a phone keyboard is how people end up
+    // picking something short enough to get right first time.
     await page.fill('#auth-pass', 'field-pass-2026');
+
+    check('the password is masked to start with',
+      await page.getAttribute('#auth-pass', 'type') === 'password');
+
+    const tap = await page.evaluate(() => {
+      const b = document.querySelector('#btnReveal');
+      const r = b.getBoundingClientRect();
+      const f = document.querySelector('#auth-pass').getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), inside: r.right <= f.right + 1 };
+    });
+    check('the reveal control is a real tap target inside the field',
+      tap.w >= 40 && tap.h >= 40 && tap.inside, JSON.stringify(tap));
+
+    await page.click('#btnReveal');
+    check('tapping it shows the password',
+      await page.getAttribute('#auth-pass', 'type') === 'text');
+    check('the control says it is pressed, for a screen reader',
+      await page.getAttribute('#btnReveal', 'aria-pressed') === 'true' &&
+      /hide/i.test(await page.getAttribute('#btnReveal', 'aria-label')),
+      await page.getAttribute('#btnReveal', 'aria-label'));
+    check('the shown password is the one that was typed',
+      await page.inputValue('#auth-pass') === 'field-pass-2026');
+
+    await page.click('#btnReveal');
+    check('tapping again hides it', await page.getAttribute('#auth-pass', 'type') === 'password');
+    check('revealing did not alter what was typed',
+      await page.inputValue('#auth-pass') === 'field-pass-2026');
+
+    // Reveal it again before submitting, to prove the state does not survive.
+    await page.click('#btnReveal');
+
     await page.fill('#auth-name', 'Field Worker');
     await page.click('#btnAuthSubmit');
     await page.waitForSelector('#screen-portal:not([hidden])', { timeout: 15000 });
+
+    check('signing in puts the field back to masked',
+      await page.getAttribute('#auth-pass', 'type') === 'password' &&
+      await page.getAttribute('#btnReveal', 'aria-pressed') === 'false',
+      'a phone handed to the next contributor would show the last one\'s password');
 
     // ── Portal ───────────────────────────────────────────────────────────────
     check('creating an account lands on the portal',

@@ -36,8 +36,15 @@
 
     <div class="field-group">
       <label for="auth-pass">Password</label>
-      <input id="auth-pass" type="password" autocomplete="current-password"
-             enterkeyhint="go" placeholder="At least 10 characters" />
+      <!-- Typing a 10-character passphrase blind on a phone keyboard is how
+           people end up choosing a short one. The toggle is inside the field
+           so it cannot be mistaken for a form control. -->
+      <div class="field-with-btn">
+        <input id="auth-pass" type="password" autocomplete="current-password"
+               enterkeyhint="go" placeholder="At least 10 characters" />
+        <button class="reveal" id="btnReveal" type="button"
+                aria-label="Show password" aria-pressed="false" title="Show password"></button>
+      </div>
     </div>
 
     <div class="field-group" id="authNameRow" hidden>
