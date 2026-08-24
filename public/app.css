@@ -1,0 +1,1656 @@
+/* play.css — the prompt-driven capture session.
+ *
+ * Colour and component primitives come from theme.css; this file is layout
+ * and the pieces specific to the session flow.
+ *
+ * The screen is a fixed viewport, never a scrolling document: the prompt
+ * holds the middle, the controls sit in the lower third within thumb reach,
+ * and the verdict slides up over them.
+ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; height: 100%; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  position: fixed;
+  inset: 0;
+}
+
+button { font-family: inherit; touch-action: manipulation; }
+
+/* Stage lighting: coloured glows bleeding in from the edges. */
+/* A faint dot grid, the way an arcade panel is perforated. */
+
+.screen {
+  position: relative;
+  z-index: 1;
+  overflow-x: hidden;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: calc(10px + var(--safe-t)) calc(16px + var(--safe-r)) calc(14px + var(--safe-b)) calc(16px + var(--safe-l));
+  max-width: 620px;
+  margin: 0 auto;
+}
+.screen[hidden] { display: none; }
+
+/* The portal is the one screen that scrolls; every other screen is a fixed
+   viewport with its controls pinned in reach. */
+.screen.scrolls { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* ── NO SCROLLBARS ─────────────────────────────────────────────────────────────
+   A phone draws a scrollbar only while the thumb is moving and then takes it
+   away; a desktop browser leaves a permanent grey gutter down the side. This
+   app is one column with a road running through it, and a gutter cuts a line
+   through that road on every laptop it is opened on. The position is already
+   told by the map — the finished tiles behind and the gate ahead — so the bar
+   is duplicating an answer the screen has given better.
+
+   Nothing is trapped by this: the content still scrolls by wheel, trackpad,
+   touch, arrow keys, Page Up/Down and Home/End, all of which keep working
+   because only the bar is hidden, not the overflow. */
+* { scrollbar-width: none; }              /* Firefox */
+*::-webkit-scrollbar { width: 0; height: 0; }  /* Safari, Chrome */
+
+/* ── TOP BAR ───────────────────────────────────────────────────────────────── */
+.topbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+.icon-btn {
+  width: 44px; height: 44px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background .15s, color .15s;
+}
+.icon-btn:active { background: var(--line); color: var(--ink); }
+
+/* One notch per prompt, stitched like a seam. */
+.segbar { flex: 1; display: flex; gap: 3px; height: 14px; align-items: stretch; }
+.seg {
+  flex: 1;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+  position: relative;
+}
+.seg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 99px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1);
+}
+.seg.done::after    { background: var(--green); transform: scaleX(1); }
+.seg.skipped::after { background: var(--ink-3); transform: scaleX(1); }
+.seg.current::after { background: var(--green); transform: scaleX(.4); }
+
+.streak-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gold-d);
+  flex-shrink: 0;
+  padding: 4px 6px;
+}
+.streak-pill .flame { font-size: 17px; display: inline-block; }
+.streak-pill.pulse .flame { animation: flamePop .5s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes flamePop {
+  0%   { transform: scale(1) rotate(0); }
+  45%  { transform: scale(1.55) rotate(-10deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* ── PROMPT ────────────────────────────────────────────────────────────────── */
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  min-height: 0;
+  padding: 4px 0 10px;
+}
+
+.instruction {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  text-align: center;
+}
+.instruction .lang { color: var(--green-ink); }
+
+/* The session takes the colour of the set being recorded. */
+
+.prompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.prompt-pos {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+}
+
+/* The prompt panel. */
+.prompt-card {
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 26px 20px;
+  text-align: center;
+  position: relative;
+  box-shadow: 0 var(--press) 0 var(--line);
+}
+/* A bright sheen across the top edge, like light on a glossy panel. */
+
+
+.prompt-card.enter { animation: cardIn .4s cubic-bezier(.22, 1, .36, 1); }
+@keyframes cardIn {
+  from { opacity: 0; transform: translateX(36px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.prompt-card.leave { animation: cardOut .22s ease-in forwards; }
+@keyframes cardOut {
+  to { opacity: 0; transform: translateX(-30px) scale(.96); }
+}
+
+.chip-cat {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--blue);
+  background: var(--blue-l);
+  border-radius: 99px;
+  padding: 5px 12px;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Telugu word owns the screen. Pure white against indigo for the
+   strongest reading contrast the palette allows. */
+.word-te {
+  font-size: clamp(46px, 15.5vw, 78px);
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+.word-translit {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--blue);
+  margin-bottom: 5px;
+}
+.word-en { font-size: 15px; color: var(--ink-2); }
+
+.speak-btn {
+  margin-top: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 99px;
+  border: var(--bd) solid var(--line);
+  background: var(--card);
+  color: var(--blue);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.speak-btn:active { transform: scale(.95); background: rgba(245, 184, 0, .16); }
+.speak-btn[hidden] { display: none; }
+
+/* ── LEVEL METER ───────────────────────────────────────────────────────────── */
+.meter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity .25s;
+}
+.meter-wrap.show { opacity: 1; }
+.meter-label { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--ink-2); min-width: 46px; }
+.meter {
+  flex: 1;
+  height: 14px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.meter-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: var(--red);
+  transition: width .07s linear;
+}
+
+/* ── BOTTOM ACTIONS ────────────────────────────────────────────────────────── */
+.actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.btn-rec {
+  --face-1: var(--red); --face-2: var(--red);
+  --deep: var(--red-d);   --glow: rgba(232, 68, 63, .16);
+  --on: #ffffff;
+}
+.btn-rec.recording {
+  --face-1: var(--red); --face-2: var(--red-d);
+  animation: recPulse 1.15s ease-in-out infinite;
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 var(--press) 0 var(--red-d), 0 0 0 0 rgba(232, 68, 63, .16); }
+  50%      { box-shadow: 0 var(--press) 0 var(--red-d), 0 0 0 18px rgba(232, 68, 63, .16); }
+}
+
+.rec-dot {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.btn-rec.recording .rec-dot { animation: blink .7s ease-in-out infinite; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+
+/* ── FEEDBACK SHEET ────────────────────────────────────────────────────────── */
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 40;
+  padding: 20px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  border-top-left-radius: var(--r-xl);
+  border-top-right-radius: var(--r-xl);
+  transform: translateY(105%);
+  transition: transform .32s cubic-bezier(.22, 1, .36, 1);
+  border-top: var(--bd-hi) solid transparent;
+}
+.sheet.show { transform: translateY(0); }
+.sheet-inner { max-width: 620px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+.sheet.good { background: var(--green-l); border-top-color: transparent; }
+.sheet.bad  { background: var(--red-l); border-top-color: var(--red); }
+.sheet.info { background: var(--blue-l); border-top-color: transparent; }
+
+.sheet-head { display: flex; align-items: center; gap: 13px; }
+.sheet-icon {
+  width: 50px; height: 50px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+  font-weight: 800;
+  flex-shrink: 0;
+  border: var(--bd-hi) solid currentColor;
+}
+.sheet.good .sheet-icon { background: var(--green); color: #fff; border-color: var(--green); }
+.sheet.bad  .sheet-icon { background: var(--red); color: #fff; border-color: var(--red); }
+.sheet.info .sheet-icon { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+.sheet-title { font-size: 23px; font-weight: 800; letter-spacing: -.01em; }
+.sheet.good .sheet-title { color: var(--green-ink); }
+.sheet.bad  .sheet-title { color: var(--red-ink); }
+.sheet.info .sheet-title { color: var(--blue-d); }
+.sheet-sub { font-size: 14px; color: var(--ink-2); margin-top: 3px; line-height: 1.45; }
+
+.xp-badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gold-d);
+  flex-shrink: 0;
+  animation: xpPop .45s cubic-bezier(.2, 1.6, .4, 1);
+}
+@keyframes xpPop {
+  from { opacity: 0; transform: translateY(12px) scale(.6); }
+  to   { opacity: 1; transform: none; }
+}
+
+.sheet-row { display: flex; gap: 10px; }
+.sheet-row .btn { flex: 1; }
+
+.replay-btn {
+  width: 56px;
+  min-height: 52px;
+  flex: 0 0 56px !important;
+  border-radius: var(--r);
+  border: var(--bd) solid var(--line);
+  background: var(--card);
+  color: var(--ink-2);
+  cursor: pointer;
+  box-shadow: 0 var(--press) 0 var(--line);
+}
+.replay-btn:active { transform: translateY(3px); }
+
+.metrics { display: flex; flex-wrap: wrap; gap: 7px; }
+.metric {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 99px;
+  border: var(--bd) solid var(--line);
+  color: var(--ink-2);
+  background: var(--card);
+}
+.metric.bad { color: var(--red-ink); border-color: var(--red); }
+
+/* ── SETUP + COMPLETE ──────────────────────────────────────────────────────── */
+.center-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 13px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+.brand { display: flex; align-items: center; gap: 13px; justify-content: center; }
+/* A semicolon: the mark that joins two clauses instead of ending one, which
+   is what Telugu does between the prompt and the Banjara answer. */
+.brand-mark {
+  font-family: var(--sans);
+  font-size: 58px;
+  font-weight: 800;
+  line-height: .8;
+  color: var(--green);
+  padding-bottom: 16px;
+}
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.brand h1 {
+  font-family: var(--sans);
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: var(--green);
+  text-transform: uppercase;
+}
+
+.lede { text-align: center; font-size: 16px; color: var(--ink-2); line-height: 1.55; }
+.lede strong { color: var(--green-ink); }
+
+.field-group { display: flex; flex-direction: column; gap: 7px; }
+.field-group label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.field-group input, .field-group select {
+  width: 100%;
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;             /* under 16px iOS zooms the page on focus */
+  font-weight: 600;
+  padding: 15px;
+  min-height: 54px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color .15s, background .15s;
+}
+.field-group input:focus, .field-group select:focus { border-color: var(--blue); background: var(--card); }
+
+/* ── REVEAL ────────────────────────────────────────────────────────────────────
+   A password field with a button sitting in its right-hand end. The padding on
+   the input is what keeps the text from running under the button; without it a
+   long passphrase disappears beneath its own toggle. */
+.field-with-btn { position: relative; display: flex; }
+.field-with-btn input { padding-right: 56px; }
+
+.reveal {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 44px;                 /* a real tap target, not just the glyph */
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color .15s, background .15s;
+}
+.reveal:hover { color: var(--ink-2); }
+.reveal:active { background: var(--line); }
+/* Showing is a state, so it looks like one rather than reverting to grey. */
+.reveal[aria-pressed="true"] { color: var(--blue); }
+.reveal .ico { width: 21px; height: 21px; }
+.field-group select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='9'><path d='M1.5 1.5l5 5 5-5' stroke='%232aa9e8' stroke-width='2.2' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 17px center;
+  padding-right: 44px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r);
+  padding: 15px;
+  cursor: pointer;
+  transition: border-color .18s;
+}
+.toggle-row.on { border-color: var(--green); }
+.toggle-row .t-text { flex: 1; }
+.toggle-row .t-title { font-size: 15px; font-weight: 700; }
+.toggle-row .t-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; line-height: 1.4; }
+.switch {
+  width: 58px; height: 34px;
+  border-radius: 99px;
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  position: relative;
+  flex-shrink: 0;
+  transition: background .2s, border-color .2s;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition: transform .22s cubic-bezier(.22, 1, .36, 1), background .2s;
+}
+.toggle-row.on .switch { background: rgba(87, 193, 31, .16); border-color: var(--green); }
+.toggle-row.on .switch::after { transform: translateX(24px); background: var(--green); }
+
+.srv-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 99px;
+  border: var(--bd) solid;
+}
+.srv-state.ok       { color: var(--green);     border-color: rgba(87, 193, 31, .16); background: rgba(87, 193, 31, .16); }
+.srv-state.err      { color: #ff7d9e;         border-color: rgba(232, 68, 63, .16);  background: rgba(232, 68, 63, .16); }
+.srv-state.checking { color: var(--gold-d); border-color: var(--gold); background: #fff8e1; }
+.srv-state .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+/* ── COMPLETE ──────────────────────────────────────────────────────────────── */
+.trophy {
+  font-size: 78px;
+  text-align: center;
+  line-height: 1;
+  animation: trophyIn .6s cubic-bezier(.2, 1.5, .4, 1);
+}
+@keyframes trophyIn {
+  from { opacity: 0; transform: scale(.3) rotate(-20deg); }
+  to   { opacity: 1; transform: none; }
+}
+.complete-title { text-align: center; font-size: 28px; font-weight: 800; color: var(--green-ink); }
+.complete-sub { text-align: center; font-size: 15px; color: var(--ink-2); line-height: 1.5; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; }
+.stat {
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r);
+  padding: 18px 14px;
+  text-align: center;
+}
+.stat::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: currentColor;
+  opacity: .6;
+}
+.stat .v { font-family: var(--mono); font-size: 27px; font-weight: 800; line-height: 1.1; }
+.stat .k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 7px;
+}
+.stat.xp     { color: var(--gold); }
+.stat.acc    { color: var(--green); }
+.stat.streak { color: var(--red); }
+.stat.time   { color: var(--gold); }
+.stat.xp .v     { color: var(--gold-d); }
+.stat.acc .v    { color: var(--green-ink); }
+.stat.streak .v { color: var(--red-ink); }
+.stat.time .v   { color: var(--blue-d); }
+
+.queue-note {
+  font-family: var(--sans);
+  font-size: 13px;
+  text-align: center;
+  color: var(--gold-d);
+  background: #fff8e1;
+  border: var(--bd) solid var(--gold);
+  border-radius: var(--r);
+  padding: 12px;
+  line-height: 1.5;
+}
+.queue-note[hidden] { display: none; }
+
+/* Celebration: mirror discs and thread colours, pure CSS so nothing loads. */
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 60; overflow: hidden; }
+.confetti span {
+  position: absolute;
+  top: -12vh;
+  width: 10px;
+  height: 16px;
+  border-radius: 2px;
+  animation: fall linear forwards;
+}
+@keyframes fall {
+  to { transform: translateY(115vh) rotate(760deg); opacity: .15; }
+}
+
+/* ── MISC ──────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(100px + var(--safe-b));
+  transform: translate(-50%, 20px);
+  z-index: 70;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 13px 20px;
+  border-radius: 99px;
+  opacity: 0;
+  transition: opacity .22s, transform .22s;
+  pointer-events: none;
+  max-width: 88vw;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.err-box {
+  background: var(--red-l);
+  border: var(--bd) solid var(--red);
+  color: var(--red-ink);
+  border-radius: var(--r);
+  padding: 13px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.err-box[hidden] { display: none; }
+
+.link-row { text-align: center; }
+.link-row a {
+  color: var(--ink-3);
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--ink-3);
+  padding-bottom: 1px;
+}
+
+/* Short landscape phones: shrink the hero so the controls stay on screen. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .word-te { font-size: clamp(30px, 7.5vh, 46px); }
+  .prompt-card { padding: 14px 14px 12px; }
+  .prompt-card::before { display: none; }
+  .stage { gap: 10px; padding: 6px 0; }
+  .btn { min-height: 52px; }
+  .instruction { font-size: 17px; }
+  .trophy { font-size: 46px; }
+  .chip-cat { margin: 0 0 10px; }
+}
+
+/* Text-styled button, for secondary routes that should not compete with the
+   primary action for vertical space. */
+.link-row { display: flex; gap: 18px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.text-link {
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--gold);
+  color: var(--gold);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.text-link[hidden] { display: none; }
+
+/* ── PORTAL ────────────────────────────────────────────────────────────────── */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 0 14px;
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+.avatar {
+  position: relative;
+  width: 46px; height: 46px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--green);
+  box-shadow: 0 3px 0 var(--green-d);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform .1s;
+}
+.avatar:active { transform: scale(.92); }
+.avatar.lg { width: 62px; height: 62px; font-size: 25px; cursor: default; }
+
+/* A ring that pulses once when XP lands, so progress is felt on the portal
+   without opening the profile. */
+.avatar-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--green);
+  opacity: 0;
+  pointer-events: none;
+}
+.avatar.pulse .avatar-ring { animation: ringPop .75s cubic-bezier(.22, 1, .36, 1); }
+@keyframes ringPop {
+  0%   { opacity: .95; transform: scale(.82); }
+  70%  { opacity: .35; transform: scale(1.22); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+.who { flex: 1; min-width: 0; }
+.who-name {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.who-lvl { font-family: var(--mono); font-size: 12px; color: var(--ink-2); margin-top: 1px; }
+
+/* A streak with nothing behind it should not look like an achievement. */
+.streak-pill.cold { color: var(--ink-3); }
+.streak-pill.cold .flame { filter: grayscale(1); opacity: .5; }
+
+.portal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 10px;
+}
+.portal-body.scrolls {
+  overflow-y: auto;
+  /* This page only goes one way. Without these a stray diagonal swipe drags
+     the whole map sideways, and any element that overhangs by a pixel turns
+     into a scrollable axis nobody asked for. */
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  /* Scrolling past the gate must not hand the gesture to the page behind it —
+     the map ends on purpose and the rattle is the answer, not a bounce. */
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.card {
+  background: var(--card));
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 16px;
+}
+
+/* ── XP loader ─────────────────────────────────────────────────────────────── */
+.level-row { display: flex; align-items: center; gap: 14px; }
+.level-badge {
+  width: 52px; height: 52px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-family: var(--sans);
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--green);
+  box-shadow: 0 3px 0 var(--green-d);
+}
+.level-bar-wrap { flex: 1; min-width: 0; }
+.level-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  margin-bottom: 7px;
+}
+.level-track {
+  height: 16px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.level-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: var(--gold);
+  transition: width .7s cubic-bezier(.22, 1, .36, 1);
+}
+.level-sub {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 8px;
+}
+.level-sub span { color: var(--ink); font-weight: 700; }
+
+/* ── Word set cards ────────────────────────────────────────────────────────── */
+.section-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 2px 2px -4px;
+}
+
+.pack-grid { display: flex; flex-direction: column; gap: 9px; }
+@media (min-width: 680px) {
+  .pack-grid { display: grid; grid-template-columns: 1fr 1fr; }
+}
+
+/* One row per set.
+ *
+ * The tile used to be one of five colours per category, which taught nothing:
+ * a colour only means something if you can remember what it means, and nobody
+ * remembers fifteen. Colour now reports state — untouched is grey, started is
+ * gold, finished is lime — so a glance down the list answers the only question
+ * being asked of it. */
+.pack {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 13px;
+  border-radius: var(--r);
+  border: var(--bd) solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: 0 var(--press) 0 var(--line);
+  transition: transform .06s ease, box-shadow .06s ease;
+  touch-action: manipulation;
+}
+.pack:active { transform: translateY(var(--press)); box-shadow: 0 0 0 var(--line); }
+
+.pack-icon {
+  width: 46px; height: 46px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  color: var(--ink-3);
+  transition: color .2s, border-color .2s, background .2s;
+}
+
+/* Started: gold, the colour of your own progress everywhere else. */
+.pack.started .pack-icon {
+  color: var(--gold-d);
+  border-color: var(--gold);
+  background: #fff8e1;
+}
+.pack.started .pack-meta { color: var(--gold-d); }
+
+/* Finished: lime, the same green that accepts a take. */
+.pack.complete .pack-icon {
+  color: var(--green-ink);
+  border-color: var(--green);
+  background: var(--green-l);
+}
+
+
+.pack-body { flex: 1; min-width: 0; display: block; }
+.pack-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pack-name {
+  font-size: 16px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pack-meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.pack-track {
+  display: block;
+  height: 8px;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.pack-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent, var(--gold));
+  border-radius: 99px;
+  transition: width .5s cubic-bezier(.22, 1, .36, 1);
+}
+.pack-go {
+  flex-shrink: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+  width: 16px;
+  text-align: center;
+}
+
+/* A finished set steps back rather than shouting. */
+.pack.complete .pack-meta,
+.pack.complete .pack-go { color: var(--green-ink); }
+
+/* A set whose words are still being fetched. */
+.pack.loading { opacity: .55; pointer-events: none; }
+
+/* ── PROFILE DRAWER ────────────────────────────────────────────────────────── */
+/* Slides in from the right over the portal. The profile is reference, not a
+   step in the flow, so it should not take the operator off the screen they
+   are working on. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(60, 60, 60, .45);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.scrim.show { opacity: 1; }
+.scrim[hidden] { display: none; }
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 51;
+  width: min(400px, 88vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-left: var(--bd-hi) solid var(--line);
+  box-shadow: -24px 0 60px -20px var(--line);
+  transform: translateX(102%);
+  transition: transform .36s cubic-bezier(.22, 1, .36, 1);
+  padding: calc(14px + var(--safe-t)) calc(16px + var(--safe-r)) calc(14px + var(--safe-b)) 16px;
+}
+.drawer.show { transform: translateX(0); }
+.drawer[hidden] { display: none; }
+
+.drawer-head { display: flex; align-items: center; gap: 13px; padding-bottom: 18px; flex-shrink: 0; }
+.drawer-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.drawer-foot { flex-shrink: 0; padding-top: 14px; }
+
+/* Contents stagger in behind the panel, so it arrives as one motion. */
+.drawer.show .drawer-body > * {
+  animation: driftIn .42s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+.drawer.show .drawer-body > *:nth-child(1) { animation-delay: .08s; }
+.drawer.show .drawer-body > *:nth-child(2) { animation-delay: .14s; }
+.drawer.show .drawer-body > *:nth-child(3) { animation-delay: .2s; }
+@keyframes driftIn {
+  from { opacity: 0; transform: translateX(22px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.tile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tile {
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 14px 8px;
+  text-align: center;
+}
+.tile-v { display: block; font-family: var(--mono); font-size: 21px; font-weight: 800; color: var(--ink); }
+.tile-k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 5px;
+}
+
+.contrib-card .card-label { margin-bottom: 12px; }
+.contrib-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.contrib-row:first-of-type { border-top: none; }
+.contrib-name { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contrib-count { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ink-3); }
+.contrib-bar { width: 62px; height: 6px; background: var(--paper); border-radius: 99px; overflow: hidden; flex-shrink: 0; }
+.contrib-fill { display: block; height: 100%; border-radius: 99px; background: var(--green); transition: width .5s cubic-bezier(.22, 1, .36, 1); }
+
+/* ── MOTION ────────────────────────────────────────────────────────────────── */
+/* Cards deal in one at a time on arrival rather than appearing as a block. */
+.pack {
+  animation: dealIn .44s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+@keyframes dealIn {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The count flashes when it changes, so a contribution is visibly banked. */
+.pack-meta.bumped { animation: bump .5s cubic-bezier(.2, 1.6, .4, 1); color: var(--green); }
+@keyframes bump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.level-fill.bumped { animation: glowPulse .8s ease; }
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(87, 193, 31, .16); }
+  45%      { box-shadow: 0 0 26px rgba(87, 193, 31, .16); }
+}
+
+/* A floating +XP that rises and fades where the contribution happened. */
+.xp-float {
+  position: fixed;
+  z-index: 80;
+  font-family: var(--sans);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--gold-d);
+  pointer-events: none;
+  animation: rise 1.15s cubic-bezier(.22, 1, .36, 1) forwards;
+}
+@keyframes rise {
+  0%   { opacity: 0; transform: translate(-50%, 0) scale(.6); }
+  25%  { opacity: 1; transform: translate(-50%, -18px) scale(1.1); }
+  100% { opacity: 0; transform: translate(-50%, -70px) scale(1); }
+}
+
+/* Screens fade through rather than cutting. */
+.screen:not([hidden]) { animation: screenIn .3s ease; }
+@keyframes screenIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── WIDER SCREENS ─────────────────────────────────────────────────────────── */
+@media (min-width: 900px) {
+  .portal-body { max-width: 880px; margin: 0 auto; width: 100%; }
+  .pack-grid { grid-template-columns: 1fr 1fr; }
+  .screen { max-width: 100%; padding-left: 32px; padding-right: 32px; }
+  .appbar { max-width: 880px; margin: 0 auto; width: 100%; }
+}
+
+/* ── ICONS ─────────────────────────────────────────────────────────────────── */
+/* One rule for every icon.
+ *
+ * The stroke properties have to live here, not on the sprite's root <svg>.
+ * A <use> reference clones the symbol into a shadow tree, so presentation
+ * attributes on the sprite element never reach it — the clone inherits from
+ * this <svg> instead. Without these, every icon falls back to the SVG default
+ * of fill:black and stroke:none and renders as a black silhouette. */
+.ico {
+  width: 1.15em;
+  height: 1.15em;
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-btn .ico { width: 21px; height: 21px; }
+.streak-pill .ico { width: 17px; height: 17px; }
+.pack-icon .ico { width: 25px; height: 25px; }
+.pack-go .ico { width: 20px; height: 20px; }
+.sheet-icon .ico { width: 25px; height: 25px; }
+.replay-btn .ico { width: 20px; height: 20px; margin: 0 auto; }
+.trophy .ico { width: 74px; height: 74px; margin: 0 auto; color: var(--gold); }
+.speak-btn .ico, .link-btn .ico { width: 18px; height: 18px; }
+
+.streak-pill .flame, .speak-btn span, .link-btn span { display: inline-flex; align-items: center; }
+
+/* ── APP BAR ───────────────────────────────────────────────────────────────── */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: linear-gradient(180deg, var(--paper) 68%, transparent);
+  padding-top: 4px;
+}
+
+/* ── HERO ──────────────────────────────────────────────────────────────────── */
+/* One clear next action. Six equal cards make the contributor decide where
+   they were; this decides it for them and leaves the grid as the override. */
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label go'
+    'name  go'
+    'meta  go';
+  gap: 4px 14px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 18px;
+  border: none;
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, var(--gold), var(--gold) 55%, var(--gold-d));
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 6px 0 var(--gold-d), 0 16px 34px -14px rgba(245, 184, 0, .16);
+  transition: transform .08s ease, box-shadow .08s ease;
+  overflow: hidden;
+}
+.hero:active { transform: translateY(5px); box-shadow: 0 1px 0 #c28a00, 0 8px 18px -12px rgba(245, 184, 0, .16); }
+.hero[hidden] { display: none; }
+/* A sheen so the panel reads as raised rather than flat violet. */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 50% 0;
+  background: linear-gradient(180deg, var(--line), transparent);
+  pointer-events: none;
+}
+
+.hero-label {
+  grid-area: label;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: rgba(43, 26, 2, .68);
+}
+.hero-name { grid-area: name; font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+.hero-meta { grid-area: meta; display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.hero-track { flex: 1; height: 8px; background: rgba(43, 26, 2, .28); border-radius: 99px; overflow: hidden; }
+.hero-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: #ffffff;
+  transition: width .6s cubic-bezier(.22, 1, .36, 1);
+}
+.hero-count { font-family: var(--mono); font-size: 12px; font-weight: 800; color: rgba(43, 26, 2, .8); }
+.hero-go {
+  grid-area: go;
+  display: grid;
+  place-items: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(43, 26, 2, .16);
+}
+.hero-go .ico { width: 22px; height: 22px; }
+.hero.done {
+  background: linear-gradient(135deg, var(--green), var(--green) 60%, var(--green-d));
+  box-shadow: 0 6px 0 var(--green-d), 0 16px 34px -14px rgba(87, 193, 31, .16);
+  color: #ffffff;
+  cursor: default;
+}
+.hero.done .hero-label { color: rgba(4, 36, 15, .68); }
+.hero.done .hero-count { color: rgba(4, 36, 15, .8); }
+
+/* ── SESSION: the record dock ──────────────────────────────────────────────── */
+/* A single round control the thumb finds without looking, rather than a bar
+   of equal-weight buttons. */
+.rec-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.rec-hint {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.rec-button {
+  position: relative;
+  width: 92px; height: 92px;
+  border: none;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 6px 0 var(--green-d);
+  transition: transform .06s ease, box-shadow .06s ease, background .2s;
+  touch-action: manipulation;
+}
+.rec-button:active { transform: translateY(6px); box-shadow: 0 0 0 var(--green-d); }
+.rec-glyph .ico { width: 40px; height: 40px; }
+
+/* A ring that breathes while recording, so the state is legible at arm's
+   length without reading the label. */
+.rec-ring {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 3px solid var(--red);
+  opacity: 0;
+}
+.rec-button.recording { background: var(--red); box-shadow: 0 6px 0 var(--red-d); }
+.rec-button.recording .rec-ring { animation: ringBreathe 1.5s ease-in-out infinite; }
+@keyframes ringBreathe {
+  0%   { opacity: .85; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(1.35); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 10px 12px;
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 99px;
+}
+.link-btn:active { color: var(--ink-2); background: var(--paper); }
+
+/* Short landscape phones: shrink the dock so it still fits. */
+@media (max-height: 560px) and (orientation: landscape) {
+  .rec-button { width: 68px; height: 68px; }
+  .rec-glyph .ico { width: 28px; height: 28px; }
+  .rec-dock { gap: 6px; }
+  .rec-hint { display: none; }
+}
+
+/* ── PROGRESSIVE DISCLOSURE ────────────────────────────────────────────────── */
+/* Fifteen sets at equal weight is a wall to read rather than a choice to make.
+   What is offered is: the one thing to do next, then anything already started,
+   and the rest on request. */
+.show-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 13px;
+  border-radius: var(--r);
+  border: var(--bd) dashed var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color .18s, border-color .18s, background .18s;
+}
+.show-all:active { color: var(--ink); border-color: var(--gold); background: var(--paper); }
+.show-all .ico { width: 16px; height: 16px; transition: transform .25s ease; }
+.show-all.open .ico { transform: rotate(90deg); }
+
+.group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 4px 2px -2px;
+}
+.group-label .count { color: var(--line); }
+
+/* ── UNIT BANNER ───────────────────────────────────────────────────────────── */
+/* Which set is being worked through, and how far along. Sticky, because it is
+   the question the path below keeps raising. */
+
+
+/* ── THE PATH ──────────────────────────────────────────────────────────────── */
+/* A batch of ten words per node, laid out as a winding trail rather than a
+   list. A list of ten identical rows says "form to fill in"; a trail says
+   "you are somewhere along this", which is the truer description. */
+.path {
+  position: relative;      /* the road is drawn into this box */
+  width: 100%;
+  overflow-x: clip;        /* the road may curve wide; the column may not */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Enough air between tiles for the road to read as a road rather than as a
+     join, and for the live tile's flag to clear the one above. */
+  gap: 40px;
+  padding: 46px 0 40px;
+}
+
+.node-row {
+  position: relative;
+  z-index: 1;              /* tiles sit on the road, not under it */
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  /* The offsets are what make it a trail. Small enough to stay in thumb reach
+     on a narrow screen. */
+  transition: transform .2s;
+}
+
+.node {
+  position: relative;
+  width: 72px; height: 72px;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: var(--line);
+  color: var(--card);
+  box-shadow: 0 6px 0 var(--line-2);
+  transition: transform .06s ease, box-shadow .06s ease;
+  touch-action: manipulation;
+}
+.node:active { transform: translateY(6px); box-shadow: 0 0 0 var(--line-2); }
+.node .ico { width: 30px; height: 30px; }
+
+/* Done: the same green that accepts a take. */
+.node.done {
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 6px 0 var(--green-d);
+}
+
+/* Live: where you are. Gold, because progress is gold everywhere in this app,
+   and the only node wearing a label. */
+.node.live {
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 6px 0 var(--green-d);
+}
+
+/* The live node is told apart by a ring and its label, not by a second colour.
+   One green means one thing. */
+.node.live::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 3px solid var(--green);
+  opacity: .4;
+  animation: nodePulse 2s ease-in-out infinite;
+}
+@keyframes nodePulse {
+  0%, 100% { transform: scale(1);    opacity: .4; }
+  60%      { transform: scale(1.18); opacity: 0; }
+}
+
+/* Ahead: reachable, but not what is being suggested. */
+.node.ahead {
+  width: 50px; height: 50px;
+  background: var(--line);
+  box-shadow: 0 4px 0 var(--line-2);
+}
+.node.ahead .ico { display: none; }
+.node.ahead::after {
+  content: '';
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--line-2);
+}
+
+.node-flag {
+  position: absolute;
+  top: -36px;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 13px;
+  border-radius: var(--r-sm);
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+  color: var(--green-ink);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: flagBob 1.8s ease-in-out infinite;
+}
+@keyframes flagBob {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, -4px); }
+}
+
+
+
+.path-end {
+  margin-top: 26px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+/* ── THE GATE ──────────────────────────────────────────────────────────────────
+   Where the road stops. Deliberately the quietest card in the app: dashed
+   instead of solid, grey instead of green, no shadow to press. It is the one
+   thing on this screen that is not an invitation, and it should look like it. */
+.gate {
+  position: relative;
+  z-index: 1;
+  margin: 34px 16px 8px;
+  padding: 24px 20px 20px;
+  border: 2px dashed var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  text-align: center;
+}
+
+.gate-lock {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--line);
+  color: var(--ink-3);
+}
+.gate-lock .ico { width: 26px; height: 26px; }
+
+.gate-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink-2);
+  letter-spacing: .01em;
+}
+.gate-note {
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.gate-bar {
+  height: 10px;
+  margin: 16px auto 0;
+  max-width: 220px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.gate-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width .4s ease;
+}
+.gate-count {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* Scrolling into a wall does nothing, which reads as a hang. The card rattles
+   against the lock and the lock resists — short, once, then still. */
+.gate.rattle { animation: gate-shake .5s cubic-bezier(.36,.07,.19,.97); }
+.gate.rattle .gate-lock {
+  animation: gate-lock .5s ease;
+  border-color: var(--ink-3);
+  color: var(--ink-2);
+}
+
+@keyframes gate-shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+@keyframes gate-lock {
+  0%, 100% { transform: rotate(0) scale(1); }
+  25% { transform: rotate(-9deg) scale(1.08); }
+  60% { transform: rotate(9deg) scale(1.08); }
+}
+
+/* ── TAB BAR ───────────────────────────────────────────────────────────────── */
+/* Three destinations, named. A hidden drawer is a thing users do not know is
+   there; a tab is a thing they can see. */
+.tabbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  border-top: var(--bd) solid var(--line);
+  background: var(--card);
+  padding-top: 8px;
+  margin: 4px -16px 0;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  min-height: 54px;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color .18s, background .18s;
+}
+.tab .ico { width: 22px; height: 22px; }
+.tab.is-on { color: var(--green-ink); background: var(--green-l); }
+.tab:active { background: var(--paper); }
+
+/* ── SETS PANEL ────────────────────────────────────────────────────────────── */
+/* The full fifteen, on request. Off the home screen entirely: a list of
+   everything is a reference, not a first thing to read. */
+
+
+/* ── SECTION BANDS ─────────────────────────────────────────────────────────── */
+/* A hundred words is ten tiles in one column — a scroll with no landmarks.
+   Every five tiles gets a band, so the map reads as chapters and you can see
+   where you are without counting circles. */
+.section-band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 10px 0 22px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--card);
+  border: var(--bd) solid var(--line);
+}
+.section-band:first-child { margin-top: 0; }
+
+.band-no {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.band-range {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.band-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-3);
+}
+
+/* A finished chapter says so in the one colour that means finished. */
+.section-band.done {
+  background: var(--green-l);
+  border-color: var(--green);
+}
+.section-band.done .band-no,
+.section-band.done .band-count { color: var(--green-ink); }
+.section-band.done .band-range { color: var(--green-ink); opacity: .8; }
+
+
+/* ── THE ROAD ──────────────────────────────────────────────────────────────── */
+/* Drawn behind the tiles from their measured centres. Without it the tiles are
+   circles scattered down a page; with it they are stops along something. */
+.trail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* What is still ahead: a dashed line, the way an unwalked route is drawn. */
+.trail-ahead {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 10;
+  stroke-linecap: round;
+  stroke-dasharray: 2 22;
+}
+
+/* What has been walked: solid, in the colour that means done everywhere else. */
+.trail-done {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 10;
+  stroke-linecap: round;
+  opacity: .35;
+}
+
+/* The section band spans the column, so the road passes behind it rather than
+   being interrupted by it. */
+.section-band { position: relative; z-index: 1; }
+
+/* The band names a word set, so it wears that set's icon. */
+.band-icon {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--paper);
+  border: var(--bd) solid var(--line);
+  color: var(--ink-3);
+}
+.band-icon .ico { width: 22px; height: 22px; }
+.band-text { flex: 1; min-width: 0; }
+.band-no { display: block; }
+.band-range { display: block; margin-top: 1px; }
+
+.section-band.done .band-icon {
+  background: var(--card);
+  border-color: var(--green);
+  color: var(--green-ink);
+}

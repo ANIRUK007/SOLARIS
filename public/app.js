@@ -1,0 +1,1549 @@
+/**
+ * play.js — prompt-driven capture session.
+ *
+ * The loop: a Telugu word is shown, the speaker says it in Banjara, the take
+ * is filtered and graded on the device, and a verdict comes back immediately.
+ * Good takes are saved and the session moves on; poor ones are re-recorded on
+ * the spot, which is the only moment the speaker is still in the room.
+ *
+ * The transcript needs no speech-to-text here: the Telugu prompt *is* the
+ * text, so the pairing is known before the speaker opens their mouth.
+ */
+(function () {
+  'use strict';
+
+  const CONFIG = {
+    serverUrl: location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001',
+    targetSampleRate: 16000,
+    minScore: 50,
+    minDuration: 0.6,
+    baseXp: 10,
+    batchSize: 5,           // prompts per tile, and per sitting
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const ico = (name, cls) => SolarisIcons.svg(name, cls);
+
+  const G = {
+    pack: null,
+    queue: [],
+    index: 0,
+    phase: 'bnj',            // 'bnj' or 'tel' when paired audio is enabled
+    withTelugu: false,
+    speaker: 'SPK001',
+    session: '01',
+
+    takes: { bnj: null, tel: null },
+    results: [],             // one entry per prompt: recorded | skipped
+
+    coverage: null,          // how covered the archive is overall
+    doneSince: {},           // recorded this visit, before the next server read
+    xp: 0,
+    streak: 0,
+    bestStreak: 0,
+    startedAt: 0,
+
+    isRec: false,
+    starting: false,
+    mr: null,
+    stream: null,
+    recStart: 0,
+    ticker: null,
+    meter: null,
+    wakeLock: null,
+    audio: null,
+    busy: false,
+  };
+
+  let audioCtx = null;
+
+  function getAudioContext() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) throw new Error('Web Audio is not supported here.');
+    if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AC();
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    return audioCtx;
+  }
+
+  // ── Feedback: haptics and short tones ───────────────────────────────────────
+  const buzz = (pattern) => { try { navigator.vibrate && navigator.vibrate(pattern); } catch {} };
+
+  /** Two-note blip. Synthesised rather than loaded, so there is no audio file
+   *  to fetch on a phone with no signal. */
+  function blip(kind) {
+    try {
+      const ctx = getAudioContext();
+      const now = ctx.currentTime;
+      const notes = kind === 'good' ? [660, 990] : kind === 'bad' ? [300, 200] : [520, 520];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now + i * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.14, now + i * 0.09 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.16);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + i * 0.09);
+        osc.stop(now + i * 0.09 + 0.18);
+      });
+    } catch { /* audio feedback is optional */ }
+  }
+
+  // ── Screens ─────────────────────────────────────────────────────────────────
+  function show(screen) {
+    ['auth', 'portal', 'play', 'done'].forEach(s => { $('screen-' + s).hidden = s !== screen; });
+    if (screen === 'portal') paintPortal();
+  }
+
+  function hideToast() {
+    const el = $('toast');
+    clearTimeout(el._t);
+    el.classList.remove('show');
+  }
+
+  function toast(msg, ms) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), ms || 2200);
+  }
+
+  // ── Sign in ─────────────────────────────────────────────────────────────────
+  let authMode = 'login';          // or 'register'
+
+  function paintAuthMode() {
+    const registering = authMode === 'register';
+    $('authLede').textContent = registering
+      ? 'Create an account to record.'
+      : 'Sign in to record.';
+    $('btnAuthSubmit').textContent = registering ? 'Create Account' : 'Sign In';
+    $('btnAuthToggle').textContent = registering ? 'I already have an account' : 'Create an account instead';
+    $('authNameRow').hidden = !registering;
+    $('auth-pass').setAttribute('autocomplete', registering ? 'new-password' : 'current-password');
+    clearError('authErr');
+  }
+
+  /**
+   * Show or hide what has been typed into the password field.
+   *
+   * The bar here is ten characters, and a passphrase typed blind on a phone
+   * keyboard is how people end up picking something short enough to get right
+   * first time — the toggle is on the side of stronger passwords, not weaker
+   * ones. It reads back to a screen reader through aria-pressed, and it never
+   * survives leaving the screen: hideReveal() puts it back on sign-out and
+   * after a successful sign-in, so a phone handed to the next contributor
+   * cannot show the last one's password.
+   */
+  function setReveal(shown) {
+    const field = $('auth-pass');
+    const btn = $('btnReveal');
+    field.type = shown ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(shown));
+    btn.setAttribute('aria-label', shown ? 'Hide password' : 'Show password');
+    btn.setAttribute('title', shown ? 'Hide password' : 'Show password');
+    btn.innerHTML = ico(shown ? 'eye-off' : 'eye');
+  }
+
+  function toggleReveal() {
+    const field = $('auth-pass');
+    const shown = field.type === 'password';
+    // Typing continues where it left off; changing type moves the caret to the
+    // end otherwise, which is maddening halfway through a passphrase.
+    const at = field.selectionStart;
+    setReveal(shown);
+    field.focus();
+    try { field.setSelectionRange(at, at); } catch {}
+  }
+
+  function hideReveal() { setReveal(false); }
+
+  async function submitAuth() {
+    clearError('authErr');
+    const username = $('auth-user').value.trim();
+    const password = $('auth-pass').value;
+
+    if (!username || !password) {
+      showError('authErr', 'Enter a username and password.');
+      return;
+    }
+
+    const btn = $('btnAuthSubmit');
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+
+    try {
+      if (authMode === 'register') {
+        await SolarisAuth.register(username, password, $('auth-name').value.trim() || username);
+      } else {
+        await SolarisAuth.login(username, password);
+      }
+      $('auth-pass').value = '';
+      hideReveal();               // never leave it revealed for the next person
+      await loadPacks();          // now that there is a token to fetch with
+      show('portal');
+    } catch (err) {
+      showError('authErr', err.message);
+    } finally {
+      btn.disabled = false;
+      // Only restore the label. Calling paintAuthMode() here would clear the
+      // error that was just shown, leaving a failed sign-in looking like
+      // nothing happened at all.
+      btn.textContent = authMode === 'register' ? 'Create Account' : 'Sign In';
+    }
+  }
+
+  function signOut() {
+    closeDrawer();
+    SolarisAuth.logout();
+    authMode = 'login';
+    hideReveal();
+    paintAuthMode();
+    show('auth');
+  }
+
+  /**
+   * Where to land on open. The app always starts behind the account screen —
+   * every recording is attributed to somebody, so there is no anonymous way
+   * in. The only choice is whether that screen offers sign-in or sign-up.
+   */
+  async function decideStartScreen() {
+    if (SolarisAuth.isSignedIn) {
+      await SolarisAuth.refresh();
+      if (SolarisAuth.isSignedIn) {
+        await loadPacks();
+        show('portal');
+        return;
+      }
+    }
+
+    // With no accounts on the server yet, the first visitor is setting it up,
+    // so offer sign-up rather than a sign-in they cannot satisfy.
+    const hasAccounts = await SolarisAuth.serverRequiresAuth();
+    authMode = hasAccounts ? 'login' : 'register';
+    paintAuthMode();
+    show('auth');
+  }
+
+  // ── Portal ──────────────────────────────────────────────────────────────────
+  let packs = [];                      // the categories, with progress folded in
+
+
+
+
+  /**
+   * One node per batch of ten words.
+   *
+   * A node is a checkpoint rather than a fixed lesson: the words in a batch are
+   * drawn when it is opened, weighted toward whatever the archive has least of.
+   * So node three means "the third ten words you record from this set", not a
+   * particular ten.
+   */
+  /**
+   * How far a tile sits from the centre line.
+   *
+   * Two sine waves of different periods, summed. One wave repeats every few
+   * tiles and reads as a pattern; two that do not share a period wander for
+   * long enough that the eye never finds the loop. The phase is derived from
+   * the set's id, so Places and Animals are recognisably different roads
+   * rather than the same shape with different labels.
+   */
+  function tileOffset(index, amplitude, phase) {
+    const slow = Math.sin(index * 1.15 + phase);          // turns every ~5 tiles
+    const fast = Math.sin(index * 0.47 + phase * 1.3);     // every ~13, to break the loop
+    return (slow * 0.74 + fast * 0.26) * amplitude;
+  }
+
+  /** A stable number from a string, so a set always draws the same road. */
+  function phaseFor(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 1000;
+    return (h / 1000) * Math.PI * 2;
+  }
+
+  /**
+   * The road itself, drawn behind the tiles.
+   *
+   * Measured rather than calculated: the section bands change the spacing, and
+   * guessing where a tile ended up would put the road next to it rather than
+   * through it. The part already walked is solid green; what is left is a grey
+   * dashed line.
+   */
+  function drawTrail() {
+    const path = $('path');
+    const old = path.querySelector('.trail');
+    if (old) old.remove();
+
+    const nodes = [...path.querySelectorAll('.node')];
+    if (nodes.length < 2) return;
+
+    const box = path.getBoundingClientRect();
+    const points = nodes.map(n => {
+      const r = n.getBoundingClientRect();
+      return { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2 };
+    });
+
+    const doneCount = path.querySelectorAll('.node.done').length;
+
+    // A Catmull-Rom curve through the centres, written out as beziers.
+    const segment = (from, to) => {
+      let d = `M ${points[from].x} ${points[from].y}`;
+      for (let i = from; i < to; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        d += ` C ${p1.x + (p2.x - p0.x) / 6} ${p1.y + (p2.y - p0.y) / 6},` +
+             ` ${p2.x - (p3.x - p1.x) / 6} ${p2.y - (p3.y - p1.y) / 6},` +
+             ` ${p2.x} ${p2.y}`;
+      }
+      return d;
+    };
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'trail');
+    svg.setAttribute('width', box.width);
+    svg.setAttribute('height', path.scrollHeight);
+    svg.setAttribute('aria-hidden', 'true');
+
+    const line = (d, cls) => {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', d);
+      el.setAttribute('class', cls);
+      svg.appendChild(el);
+    };
+
+    line(segment(0, points.length - 1), 'trail-ahead');
+    if (doneCount > 0) line(segment(0, Math.min(doneCount, points.length - 1)), 'trail-done');
+
+    path.insertBefore(svg, path.firstChild);
+  }
+
+  /**
+   * Put the tile they are up to on screen.
+   *
+   * A set of a hundred words is ten tiles; somebody returning to their sixtieth
+   * word should not have to scroll past six finished ones to find where they
+   * were. Placed a third of the way down rather than at the top, so the road
+   * behind is visible and the position reads as progress.
+   */
+  function scrollToLive() {
+    const body = document.querySelector('#screen-portal .portal-body');
+    const live = $('path').querySelector('.node.live');
+    if (!body || !live) return;
+
+    // Measured, not offsetTop: the tile's offset parent is its own row, so
+    // offsetTop is a couple of pixels and the scroll never moved.
+    const bodyBox = body.getBoundingClientRect();
+    const liveBox = live.getBoundingClientRect();
+    const top = body.scrollTop + (liveBox.top - bodyBox.top) - body.clientHeight * 0.34;
+
+    body.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }
+
+  /**
+   * Draw the archive as one road, up to the section being worked on.
+   *
+   * A section is a word set, in the order the archive lists them, and each set
+   * contributes its own run of tiles. There is no set to choose any more: the
+   * map is everything, and where you are in it is a position rather than a
+   * selection.
+   *
+   * The road stops at the end of the first unfinished section. Fifteen sections
+   * drawn at once is nine hundred tiles of scrolling with no reason to prefer
+   * any of them, and the one that matters — the next tile — is buried in it.
+   * Ending the map at a locked gate makes the scroll finite, gives finishing a
+   * section a reward, and answers "how much is left" with a number instead of a
+   * thumb.
+   */
+  function paintPath() {
+    const path = $('path');
+    path.innerHTML = '';
+    if (!packs.length) return;
+
+    // Keep the wander inside the screen on any phone: half the column, less
+    // half the widest thing a tile carries — its Start flag, which is wider
+    // than the tile — and a margin. On a 320px screen this lands around 40px;
+    // on a large one it is capped so the road does not become a zigzag.
+    const amplitude = Math.max(18, Math.min(92, path.clientWidth / 2 - 84));
+    let tileIndex = 0;          // counts across sections, so the road is one road
+    let liveFound = false;
+
+    for (let p = 0; p < packs.length; p++) {
+      const pack = packs[p];
+      const done = packDone(pack);
+      const total = pack.count;
+      const tiles = Math.ceil(total / CONFIG.batchSize);
+      const finished = Math.floor(done / CONFIG.batchSize);
+      const phase = phaseFor(pack.id);
+
+      const band = document.createElement('div');
+      band.className = 'section-band' + (done >= total ? ' done' : '');
+      band.innerHTML = `
+        <span class="band-icon">${ico(pack.icon || 'box')}</span>
+        <span class="band-text">
+          <span class="band-no">${escapeHtml(pack.name)}</span>
+          <span class="band-range">${total} words</span>
+        </span>
+        <span class="band-count">${done}/${total}</span>`;
+      path.appendChild(band);
+
+      for (let i = 0; i < tiles; i++) {
+        const row = document.createElement('div');
+        row.className = 'node-row';
+
+        // The first unfinished tile anywhere on the map is the live one;
+        // everything after it is ahead, even in a set already started.
+        const isDone = i < finished;
+        const isLive = !isDone && !liveFound;
+        if (isLive) liveFound = true;
+
+        const node = document.createElement('button');
+        node.type = 'button';
+        node.className = `node ${isDone ? 'done' : isLive ? 'live' : 'ahead'}`;
+
+        const from = i * CONFIG.batchSize + 1;
+        const to = Math.min((i + 1) * CONFIG.batchSize, total);
+        node.setAttribute('aria-label', isDone
+          ? `${pack.name}, words ${from} to ${to}, recorded`
+          : `Record ${pack.name}, words ${from} to ${to}`);
+
+        // The offset goes on the tile, not on its row. A row is the full width
+        // of the column, so shifting the row pushed its edge past the screen
+        // and the whole page could be swiped sideways — the tile itself is
+        // only as wide as it looks.
+        node.style.transform = `translateX(${tileOffset(tileIndex, amplitude, phase).toFixed(1)}px)`;
+
+        node.innerHTML = (isLive ? '<span class="node-flag">Start</span>' : '') +
+          ico(isDone ? 'check' : 'mic');
+
+        node.addEventListener('click', () => openPack(pack, node));
+        row.appendChild(node);
+        path.appendChild(row);
+        tileIndex++;
+      }
+
+      // This section is not finished, so the road ends here. Everything past
+      // the gate exists — it is just not reachable until this one is done.
+      if (done < total) {
+        const locked = packs.length - p - 1;
+        if (locked > 0) path.appendChild(gateFor(pack, packs[p + 1], locked, done, total));
+        break;
+      }
+    }
+
+    if (!liveFound) {
+      const end = document.createElement('p');
+      end.className = 'path-end';
+      end.textContent = 'Every word in the archive has been recorded.';
+      path.appendChild(end);
+    }
+
+    armGate();
+
+    // Both need the tiles laid out before they can measure.
+    requestAnimationFrame(() => {
+      drawTrail();
+      scrollToLive();
+    });
+  }
+
+  /**
+   * The locked end of the road.
+   *
+   * It names what is behind it rather than only saying "locked", because a lock
+   * with nothing behind it reads as a wall and a lock with a name reads as a
+   * door. The bar is the section's own progress, so the thing that opens the
+   * gate is the thing being measured.
+   */
+  function gateFor(pack, next, locked, done, total) {
+    const gate = document.createElement('div');
+    gate.className = 'gate';
+    gate.id = 'gate';
+    gate.innerHTML = `
+      <span class="gate-lock">${ico('lock')}</span>
+      <p class="gate-title">${locked} more ${locked === 1 ? 'section' : 'sections'} locked</p>
+      <p class="gate-note">Finish ${escapeHtml(pack.name)} to unlock ${escapeHtml(next.name)}.</p>
+      <div class="gate-bar"><i style="width:${Math.round((done / total) * 100)}%"></i></div>
+      <p class="gate-count">${total - done} words to go</p>`;
+    return gate;
+  }
+
+  /**
+   * Push back when somebody scrolls past the gate.
+   *
+   * The map simply ends, so there is nothing to scroll into and the gesture
+   * does nothing at all — which reads as the app having frozen. A short rattle
+   * says the wall is deliberate. Bound once; the map is repainted often.
+   */
+  let gateArmed = false;
+  function armGate() {
+    if (gateArmed) return;
+    const body = document.querySelector('#screen-portal .portal-body');
+    if (!body) return;
+    gateArmed = true;
+
+    let shaking = false;
+    const atEnd = () => body.scrollHeight - body.scrollTop - body.clientHeight < 4;
+
+    const rattle = (pushingDown) => {
+      const gate = document.getElementById('gate');
+      if (!gate || !pushingDown || shaking || !atEnd()) return;
+      shaking = true;
+      gate.classList.add('rattle');
+      setTimeout(() => { gate.classList.remove('rattle'); shaking = false; }, 560);
+    };
+
+    body.addEventListener('wheel', e => rattle(e.deltaY > 0), { passive: true });
+
+    let startY = 0;
+    body.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+    body.addEventListener('touchmove', e => rattle(e.touches[0].clientY < startY - 8), { passive: true });
+  }
+
+  /**
+   * Fetch the categories for the signed-in contributor.
+   *
+   * This needs a token, so it cannot run before sign-in — it used to, which
+   * left the map empty for anyone who signed in after the page loaded: the
+   * request 401'd, the list stayed empty, and nothing ever asked again.
+   */
+  async function loadPacks() {
+    if (!SolarisAuth.isSignedIn) { packs = []; return; }
+
+    try {
+      const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/words/categories', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`the word list returned ${r.status}`);
+      const data = await r.json();
+      packs = data.categories || [];
+      G.coverage = data.coverage || null;
+    } catch (err) {
+      console.error('[WORDS]', err);
+      packs = [];
+    }
+  }
+
+  /**
+   * Progress lives on the server, keyed to the account, so it follows a
+   * contributor to whatever phone they pick up next. Locally we only hold
+   * what the last categories call returned, plus anything recorded since.
+   */
+  function packDone(pack) {
+    return (pack.done || 0) + (G.doneSince[pack.id] || 0);
+  }
+  function markProgress(packId) {
+    G.doneSince[packId] = (G.doneSince[packId] || 0) + 1;
+  }
+
+
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function paintProfile() {
+    const user = SolarisAuth.user;
+    if (!user) return;
+
+    const initial = (user.displayName || user.username).trim().charAt(0) || '?';
+    $('userAvatar').textContent = initial;
+    $('drawerAvatar').textContent = initial;
+    $('userName').textContent = user.displayName || user.username;
+    $('drawerName').textContent = user.displayName || user.username;
+    $('drawerHandle').textContent = '@' + user.username;
+    $('userLevel').textContent = `Level ${user.level}`;
+    $('levelBadge').textContent = user.level;
+
+    const floor = xpForLevel(user.level);
+    const ceiling = xpForLevel(user.level + 1);
+    const into = Math.max(0, user.stats.xp - floor);
+    const span = Math.max(1, ceiling - floor);
+
+    $('xpNow').textContent = `${user.stats.xp} XP`;
+    $('xpNext').textContent = `${Math.max(0, ceiling - user.stats.xp)} XP to level ${user.level + 1}`;
+    $('levelFill').style.width = Math.min(100, (into / span) * 100) + '%';
+
+    $('wordsDone').textContent = user.stats.words;
+    $('drawerStreak').textContent = user.stats.streak || 0;
+    $('drawerBest').textContent = user.stats.bestStreak || 0;
+
+    const days = user.stats.streak || 0;
+    $('portalStreakVal').textContent = days;
+    $('portalStreak').classList.toggle('cold', !days);
+    $('portalStreak').title = days
+      ? `${days} day${days === 1 ? '' : 's'} in a row` +
+        (user.stats.contributedToday ? '' : ' — record today to keep it')
+      : 'Record a word to start a streak';
+  }
+
+  /** Per-set totals, listed in the profile drawer. */
+  function paintDrawerSets() {
+    const box = $('drawerSets');
+    box.innerHTML = '';
+
+    for (const pack of packs) {
+      const done = packDone(pack);
+      const pct = pack.count ? Math.round((done / pack.count) * 100) : 0;
+
+      const row = document.createElement('div');
+      row.className = 'contrib-row';
+      row.innerHTML = `
+        <span class="contrib-name">${escapeHtml(pack.name)}</span>
+        <span class="contrib-bar"><span class="contrib-fill" style="width:${pct}%"></span></span>
+        <span class="contrib-count">${done}/${pack.count}</span>`;
+      box.appendChild(row);
+    }
+  }
+
+  async function paintPortal() {
+    paintProfile();
+
+    // Whatever route got us here, the portal cannot draw without them.
+    if (!packs.length) await loadPacks();
+
+    paintPath();
+    refreshQueue();
+  }
+
+  // ── Sets panel ──────────────────────────────────────────────────────────────
+  let setsOpen = false;
+
+
+
+  function setTab(which) {
+    for (const [name, el] of [['learn', $('tabLearn')], ['you', $('tabYou')]]) {
+      el.classList.toggle('is-on', name === which);
+    }
+  }
+
+  // ── Profile drawer ──────────────────────────────────────────────────────────
+  let drawerOpen = false;
+
+  function openDrawer() {
+    if (drawerOpen) return;
+    drawerOpen = true;
+
+    paintProfile();
+    paintDrawerSets();
+
+    $('drawerScrim').hidden = false;
+    $('drawer').hidden = false;
+    // A frame between unhiding and animating, or the transition never runs.
+    requestAnimationFrame(() => {
+      $('drawerScrim').classList.add('show');
+      $('drawer').classList.add('show');
+    });
+    $('btnCloseDrawer').focus();
+  }
+
+  function closeDrawer() {
+    if (!drawerOpen) return;
+    drawerOpen = false;
+    setTab('learn');
+
+    $('drawerScrim').classList.remove('show');
+    $('drawer').classList.remove('show');
+    setTimeout(() => {
+      $('drawerScrim').hidden = true;
+      $('drawer').hidden = true;
+    }, 360);
+    $('btnProfile').focus();
+  }
+
+  /** Mirrors the server's curve so the portal can draw a progress bar without
+   *  another round trip. Keep the two in step. */
+  function xpForLevel(level) {
+    return Math.pow(Math.max(0, level - 1), 2) * 120;
+  }
+
+  async function checkServer() {
+    const pill = $('srvState'), lbl = $('srvLbl');
+    try {
+      const r = await fetch(CONFIG.serverUrl + '/health', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok || j.status !== 'ok') throw new Error();
+      pill.className = 'srv-state ok';
+      lbl.textContent = 'server online';
+    } catch {
+      pill.className = 'srv-state err';
+      lbl.textContent = 'offline — takes will queue on this device';
+    }
+  }
+
+  function showError(id, msg) {
+    const el = $(id);
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  const clearError = (id) => { $(id).hidden = true; };
+
+  /**
+   * The index carries only a summary per set; the words themselves live in a
+   * separate file and are fetched on the first tap, then kept for the rest of
+   * the visit.
+   */
+  /**
+   * Ask the server for a batch of prompts from this category.
+   *
+   * Drawn fresh every time rather than cached: the server excludes what this
+   * contributor has already answered and favours words nobody has covered, so
+   * two people working at once are not handed the same list.
+   */
+  async function openPack(entry, card) {
+    if (!readSpeaker()) {
+      toast('Sign in first');
+      return;
+    }
+
+    card.classList.add('loading');
+    try {
+      const url = `${CONFIG.serverUrl}/api/words/batch?category=${encodeURIComponent(entry.id)}&count=${CONFIG.batchSize}`;
+      const r = await SolarisAuth.fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`the word list returned ${r.status}`);
+
+      const data = await r.json();
+      if (!data.words || !data.words.length) {
+        toast(`Nothing left in ${entry.name} — every word is done`, 3200);
+        return;
+      }
+
+      entry.items = data.words;
+      entry.remaining = data.remaining;
+      startSession(entry);
+    } catch (err) {
+      console.error('[BATCH]', err);
+      toast(`Could not open ${entry.name}: ${err.message}`, 3600);
+    } finally {
+      card.classList.remove('loading');
+    }
+  }
+
+  /**
+   * The contributor is the speaker. There is no separate speaker field: the
+   * person signed in is the one whose Banjara is being recorded, so their
+   * account is the identity the archive files it under.
+   */
+  function readSpeaker() {
+    return SolarisAuth.user ? SolarisAuth.user.username : '';
+  }
+
+  function startSession(pack) {
+    const speaker = readSpeaker();
+    if (!speaker) {
+      toast('Sign in first');
+      return;
+    }
+
+    G.speaker = speaker;
+
+    // The batch is already filtered to words this contributor has not
+    // answered, so it is played as given.
+    G.pack = pack;
+    G.queue = pack.items.slice();
+
+    G.index = 0;
+    G.phase = 'bnj';
+    G.withTelugu = false;          // contributors record Banjara only
+    G.takes = { bnj: null, tel: null };
+    G.results = [];
+    G.xp = 0;
+
+    // The streak is a run of days, held on the account. A sitting displays it
+    // but does not change it: recording twice in one afternoon is one day.
+    G.streak = (SolarisAuth.user && SolarisAuth.user.stats.streak) || 0;
+    G.bestStreak = G.streak;
+    G.startedAt = Date.now();
+
+    $('streakVal').textContent = G.streak;
+    $('streakBox').classList.toggle('cold', !G.streak);
+
+    buildSegbar();
+    show('play');
+    renderPrompt(false);
+
+    // iOS only starts an AudioContext inside a gesture, and this tap is the
+    // last guaranteed one before recording begins.
+    try { getAudioContext(); } catch {}
+  }
+
+  // ── Progress bar ────────────────────────────────────────────────────────────
+  function buildSegbar() {
+    const bar = $('segbar');
+    bar.innerHTML = '';
+    G.queue.forEach(() => {
+      const s = document.createElement('span');
+      s.className = 'seg';
+      bar.appendChild(s);
+    });
+    updateSegbar();
+  }
+
+  function updateSegbar() {
+    const segs = $('segbar').children;
+    for (let i = 0; i < segs.length; i++) {
+      const res = G.results[i];
+      segs[i].className = 'seg' +
+        (res === 'recorded' ? ' done' : res === 'skipped' ? ' skipped' : i === G.index ? ' current' : '');
+    }
+  }
+
+  // ── Prompt rendering ────────────────────────────────────────────────────────
+  function currentItem() { return G.queue[G.index]; }
+
+  function renderPrompt(animate) {
+    const item = currentItem();
+    if (!item) return finish('completed');
+
+    const card = $('promptCard');
+    const paint = () => {
+      $('promptCat').textContent = (G.pack && G.pack.name) || item.category || 'word';
+      $('promptWord').textContent = item.te;
+      $('promptTranslit').textContent = item.translit || '';
+      $('promptEn').textContent = item.en ? `“${item.en}”` : '';
+
+      const teluguPhase = G.phase === 'tel';
+      $('instruction').innerHTML = teluguPhase
+        ? 'Now say it in <span class="lang" style="color:var(--blue)">Telugu</span>'
+        : 'Say this in <span class="lang">Banjara</span>';
+
+      $('btnSpeak').hidden = !hasTeluguVoice();
+      $('recLabel').textContent = 'Tap to record';
+      $('recGlyph').innerHTML = ico('mic');
+      $('btnRecord').classList.remove('recording');
+      $('btnSkip').hidden = teluguPhase;   // the Banjara answer is what can be absent
+      $('promptPos').textContent = `${G.index + 1} of ${G.queue.length}`;
+      $('recTimer').textContent = '00:00';
+      $('meterBar').style.width = '0%';
+      $('meterWrap').classList.remove('show');
+      clearError('playErr');
+
+      card.classList.remove('leave');
+      card.classList.add('enter');
+      setTimeout(() => card.classList.remove('enter'), 400);
+    };
+
+    if (animate) {
+      card.classList.add('leave');
+      setTimeout(paint, 200);
+    } else {
+      paint();
+    }
+    updateSegbar();
+  }
+
+  // ── Telugu playback of the prompt ───────────────────────────────────────────
+  function teluguVoice() {
+    if (!('speechSynthesis' in window)) return null;
+    const voices = speechSynthesis.getVoices() || [];
+    return voices.find(v => /^te([-_]|$)/i.test(v.lang)) || null;
+  }
+  const hasTeluguVoice = () => !!teluguVoice();
+
+  function speakPrompt() {
+    const voice = teluguVoice();
+    if (!voice) return;
+    const u = new SpeechSynthesisUtterance(currentItem().te);
+    u.voice = voice;
+    u.lang = voice.lang;
+    u.rate = 0.85;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
+
+  // ── Recording ───────────────────────────────────────────────────────────────
+  function pickMimeType() {
+    if (typeof MediaRecorder === 'undefined') return null;
+    const candidates = [
+      'audio/webm;codecs=opus', 'audio/webm',
+      'audio/mp4;codecs=mp4a.40.2', 'audio/mp4',
+      'audio/aac', 'audio/ogg;codecs=opus',
+    ];
+    for (const t of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return '';
+  }
+
+  async function toggleRecord() {
+    // getUserMedia takes a moment to resolve, and an impatient second tap in
+    // that window would open a second stream that nothing ever stops.
+    if (G.busy || G.starting) return;
+    if (G.isRec) stopRecording();
+    else await startRecording();
+  }
+
+  async function startRecording() {
+    clearError('playErr');
+    G.starting = true;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError('playErr', micMessage());
+      G.starting = false;
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+        video: false,
+      });
+    } catch (err) {
+      showError('playErr', err && err.name === 'NotAllowedError'
+        ? 'Microphone permission denied. Allow it in the browser settings, then tap record again.'
+        : micMessage());
+      G.starting = false;
+      return;
+    }
+
+    const mime = pickMimeType();
+    let mr;
+    try {
+      mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    } catch {
+      stream.getTracks().forEach(t => t.stop());
+      showError('playErr', 'This browser cannot record audio. Try Chrome or Safari.');
+      G.starting = false;
+      return;
+    }
+
+    const chunks = [];
+    mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+    mr.onstop = async () => {
+      stopMeter();
+      stream.getTracks().forEach(t => t.stop());
+      G.stream = null;
+      await processTake(new Blob(chunks, { type: mr.mimeType || 'audio/webm' }));
+    };
+
+    mr.start(200);
+    G.mr = mr;
+    G.stream = stream;
+    G.isRec = true;
+    G.starting = false;
+    G.recStart = Date.now();
+
+    $('btnRecord').classList.add('recording');
+    $('recGlyph').innerHTML = ico('pause');
+    $('recLabel').textContent = 'Tap to stop';
+    $('meterWrap').classList.add('show');
+    buzz(18);
+    requestWakeLock();
+    startMeter(stream);
+
+    // Wall clock rather than a tick count: phones throttle timers aggressively
+    // once the screen dims, and a counted interval drifts.
+    G.ticker = setInterval(() => {
+      const secs = Math.floor((Date.now() - G.recStart) / 1000);
+      $('recTimer').textContent =
+        `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+    }, 200);
+  }
+
+  function micMessage() {
+    if (!window.isSecureContext) {
+      return 'The microphone is blocked because this page is not on a secure connection.\n' +
+             'Open it over https://, or use localhost.';
+    }
+    return 'No microphone is available on this device.';
+  }
+
+  function stopRecording() {
+    if (!G.isRec) return;
+    G.isRec = false;
+    clearInterval(G.ticker);
+    try { G.mr.stop(); } catch {}
+    $('btnRecord').classList.remove('recording');
+    $('recGlyph').innerHTML = ico('mic');
+    $('recLabel').textContent = 'Processing…';
+    releaseWakeLock();
+    buzz(12);
+  }
+
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) G.wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  function releaseWakeLock() {
+    if (G.wakeLock) { G.wakeLock.release().catch(() => {}); G.wakeLock = null; }
+  }
+
+  function startMeter(stream) {
+    try {
+      const ctx = getAudioContext();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+      let raf;
+      const tick = () => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128) / 128);
+        $('meterBar').style.width = Math.min(100, peak * 145) + '%';
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+      G.meter = () => { cancelAnimationFrame(raf); try { src.disconnect(); } catch {} };
+    } catch {}
+  }
+  function stopMeter() {
+    if (G.meter) { G.meter(); G.meter = null; }
+    $('meterBar').style.width = '0%';
+  }
+
+  // ── Processing and grading ──────────────────────────────────────────────────
+  async function processTake(blob) {
+    G.busy = true;
+    try {
+      const { samples, sampleRate } = await decodeToMono16k(blob);
+      if (!samples.length) throw new Error('The recording came back empty.');
+
+      const { cleaned } = SolarisDSP.denoise(samples);
+      const take = {
+        raw: new Blob([SolarisDSP.encodeWav(samples, sampleRate)], { type: 'audio/wav' }),
+        cleaned: new Blob([SolarisDSP.encodeWav(cleaned, sampleRate)], { type: 'audio/wav' }),
+        samples, cleanedSamples: cleaned, sampleRate,
+        duration: samples.length / sampleRate,
+      };
+      take.grade = grade(take);
+      G.takes[G.phase] = take;
+      verdict(take);
+    } catch (err) {
+      console.error('[TAKE]', err);
+      showError('playErr', `Could not process that take: ${err.message}`);
+      $('recLabel').textContent = 'Tap to record';
+      $('recGlyph').innerHTML = ico('mic');
+    } finally {
+      G.busy = false;
+    }
+  }
+
+  async function decodeToMono16k(blob) {
+    const ctx = getAudioContext();
+    const ab = await blob.arrayBuffer();
+
+    const decoded = await new Promise((resolve, reject) => {
+      // Older Safari implements only the callback form.
+      const p = ctx.decodeAudioData(ab, resolve, reject);
+      if (p && typeof p.then === 'function') p.then(resolve, reject);
+    });
+
+    const target = CONFIG.targetSampleRate;
+    if (Math.abs(decoded.sampleRate - target) < 1) {
+      return { samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate };
+    }
+
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    try {
+      const off = new OAC(1, Math.ceil(decoded.duration * target), target);
+      const src = off.createBufferSource();
+      src.buffer = decoded;
+      src.connect(off.destination);
+      src.start();
+      const rendered = await off.startRendering();
+      return { samples: rendered.getChannelData(0), sampleRate: target };
+    } catch {
+      return { samples: decoded.getChannelData(0), sampleRate: decoded.sampleRate };
+    }
+  }
+
+  /** Same scoring as the full interface, reported with a plain-language
+   *  reason so a speaker who is not a sound engineer knows what to change. */
+  function grade(take) {
+    const d = take.cleanedSamples;
+    const dur = take.duration;
+    const sr = take.sampleRate;
+
+    const durOk = dur >= CONFIG.minDuration;
+    const durSc = durOk ? 25 : Math.round((dur / CONFIG.minDuration) * 25);
+
+    let ss = 0;
+    for (let i = 0; i < d.length; i++) ss += d[i] * d[i];
+    const rms = Math.sqrt(ss / d.length);
+    const rmsOk = rms > 0.01 && rms < 0.95;
+    const rmsSc = rmsOk ? 30 : (rms <= 0.01 ? Math.round((rms / 0.01) * 30) : 15);
+
+    let clip = 0;
+    for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) >= 0.99) clip++;
+    const clipR = clip / d.length;
+    const clipOk = clipR < 0.01;
+    const clipSc = clipOk ? 25 : Math.max(0, Math.round((1 - clipR / 0.05) * 25));
+
+    // Noise floor from the 10th-percentile frame energy: a clip that starts on
+    // silence would otherwise push the ratio to meaningless extremes.
+    const frame = Math.max(1, Math.floor(sr * 0.02));
+    const energies = [];
+    for (let i = 0; i + frame <= d.length; i += frame) {
+      let e = 0;
+      for (let j = i; j < i + frame; j++) e += d[j] * d[j];
+      energies.push(e / frame);
+    }
+    energies.sort((a, b) => a - b);
+    const sP = (ss / d.length) || 1e-12;
+    const nP = Math.max(energies.length ? energies[Math.floor(energies.length * 0.1)] : sP, 1e-9);
+    const snr = Math.max(-20, Math.min(60, 10 * Math.log10(sP / nP)));
+    const snrOk = snr > 10;
+    const snrSc = snrOk ? 20 : Math.max(0, Math.round((snr / 10) * 20));
+
+    let reason = null;
+    if (!durOk)        reason = 'That was very short — hold the recording a moment longer.';
+    else if (rms <= 0.01) reason = 'Almost nothing came through. Move closer to the microphone.';
+    else if (!rmsOk)   reason = 'That was too loud and distorted. Pull back a little.';
+    else if (!clipOk)  reason = 'The audio is clipping. Speak a little softer.';
+    else if (!snrOk)   reason = 'Too much background noise around the voice.';
+
+    return {
+      score: Math.min(100, durSc + rmsSc + clipSc + snrSc),
+      reason,
+      metrics: [
+        { l: `${dur.toFixed(1)}s`, ok: durOk },
+        { l: `vol ${(rms * 100).toFixed(0)}%`, ok: rmsOk },
+        { l: `clip ${(clipR * 100).toFixed(1)}%`, ok: clipOk },
+        { l: `snr ${snr.toFixed(0)}dB`, ok: snrOk },
+      ],
+    };
+  }
+
+  // ── Verdict sheet ───────────────────────────────────────────────────────────
+  function verdict(take) {
+    const g = take.grade;
+    const passed = g.score >= CONFIG.minScore;
+    const sheet = $('sheet');
+
+    sheet.className = 'sheet ' + (passed ? 'good' : 'bad');
+    $('sheetIcon').innerHTML = ico(passed ? 'check' : 'rotate');
+    $('sheetTitle').textContent = passed ? pickPraise() : 'Let us try that again';
+    $('sheetSub').textContent = passed
+      ? (G.phase === 'tel' ? 'Telugu take captured.' : 'Banjara take captured.')
+      : (g.reason || 'The recording did not pass the quality check.');
+
+    $('sheetMetrics').innerHTML = '';
+    g.metrics.forEach(m => {
+      const el = document.createElement('span');
+      el.className = 'metric' + (m.ok ? '' : ' bad');
+      el.textContent = m.l;
+      $('sheetMetrics').appendChild(el);
+    });
+
+    const xp = passed ? CONFIG.baseXp + Math.round(g.score / 10) + Math.min(G.streak, 5) : 0;
+    take.xp = xp;
+    $('sheetXp').hidden = !passed;
+    $('sheetXp').textContent = `+${xp} XP`;
+
+    $('btnContinue').hidden = !passed;
+    $('btnRetry').textContent = passed ? 'Redo' : 'Record again';
+    $('btnRetry').className = passed ? 'btn btn-ghost' : 'btn btn-primary';
+
+    sheet.classList.add('show');
+    blip(passed ? 'good' : 'bad');
+    buzz(passed ? [14, 40, 14] : [90]);
+  }
+
+  const PRAISE = ['Nice!', 'Got it!', 'Clean take!', 'Well done!', 'Perfect!', 'Recorded!'];
+  const pickPraise = () => PRAISE[Math.floor(Math.random() * PRAISE.length)];
+
+  function hideSheet() { $('sheet').classList.remove('show'); }
+
+  function replayTake() {
+    const take = G.takes[G.phase];
+    if (!take) return;
+    if (G.audio) { G.audio.pause(); URL.revokeObjectURL(G.audio.src); }
+    G.audio = new Audio(URL.createObjectURL(take.cleaned));
+    $('btnReplay').innerHTML = ico('pause');
+    G.audio.addEventListener('ended', () => { $('btnReplay').innerHTML = ico('play'); });
+    G.audio.play().catch(() => {});
+  }
+
+  function retryTake() {
+    G.takes[G.phase] = null;
+    hideSheet();
+    $('recLabel').textContent = 'Tap to record';
+    $('recGlyph').innerHTML = ico('mic');
+    $('recTimer').textContent = '00:00';
+    $('meterWrap').classList.remove('show');
+  }
+
+  /** Continue: either move to the Telugu half of the same word, or save. */
+  async function continueFlow() {
+    const take = G.takes[G.phase];
+    if (!take) return;
+
+    G.xp += take.xp || 0;
+    hideSheet();
+
+    if (G.phase === 'bnj' && G.withTelugu) {
+      G.phase = 'tel';
+      renderPrompt(false);
+      return;
+    }
+
+    await saveCurrent();
+  }
+
+  // ── Saving ──────────────────────────────────────────────────────────────────
+  async function saveCurrent() {
+    const item = currentItem();
+    const bnj = G.takes.bnj;
+    const tel = G.takes.tel;
+    if (!bnj) return;
+
+    const base = `${G.speaker}_${item.id}`;   // the id repeats in the filename so a file stands alone
+    const record = {
+      // Filed under the contributor and the set. Opening a set is not a
+      // numbered sitting, so there is no session folder in the path.
+      folder: `contributors/${G.speaker}/${G.pack.id}/${item.id}`,
+      // No speech-to-text needed: the prompt is the transcript.
+      transcript: item.te,
+      names: {
+        banjara:    `${base}_banjara.wav`,
+        telugu:     `${base}_telugu.wav`,
+        transcript: `${base}_telugu.txt`,
+        banjaraRaw: `${base}_banjara_raw.wav`,
+        teluguRaw:  `${base}_telugu_raw.wav`,
+      },
+      blobs: {
+        banjara:    bnj.cleaned,
+        banjaraRaw: bnj.raw,
+        ...(tel ? { telugu: tel.cleaned, teluguRaw: tel.raw } : {}),
+      },
+      meta: {
+        contributor: G.speaker,
+        pack: G.pack.id,
+        prompt: { id: item.id, telugu: item.te, translit: item.translit, english: item.en, segment: item.segment },
+        capturedAt: new Date().toISOString(),
+        sampleRate: bnj.sampleRate,
+        durations: { banjara: bnj.duration, telugu: tel ? tel.duration : null },
+        scores: { banjara: bnj.grade.score, telugu: tel ? tel.grade.score : null },
+        filter: SolarisDSP.DEFAULTS,
+        client: navigator.userAgent,
+        // Claimed here for convenience; the server stamps the authoritative
+        // value from the token.
+        recordedBy: SolarisAuth.user ? SolarisAuth.user.username : null,
+      },
+    };
+
+    G.busy = true;
+    try {
+      const res = await SolarisStore.save(record);
+      if (res.queued) {
+        toast('Saved on this device — will upload later');
+      } else if (res.profile) {
+        // Credited word by word, so a contributor who records one word and
+        // stops still sees it counted.
+        SolarisAuth.updateUser(res.profile);
+        celebrateXp(res.xp);
+        paintProfile();
+
+        // The day streak may have just gone up; the session header shows it.
+        const days = res.profile.stats.streak || 0;
+        $('streakVal').textContent = days;
+        $('streakBox').classList.toggle('cold', !days);
+      }
+    } catch (err) {
+      console.error('[SAVE]', err);
+      toast('Save failed: ' + err.message, 3600);
+    } finally {
+      G.busy = false;
+    }
+
+    $('streakBox').classList.add('pulse');
+    setTimeout(() => $('streakBox').classList.remove('pulse'), 500);
+
+    G.results[G.index] = 'recorded';
+    markProgress(G.pack.id);
+    advance();
+  }
+
+  function skipWord() {
+    if (G.busy || G.isRec) return;
+    // A word with no Banjara equivalent is a finding, not a gap — it is kept
+    // in the session log rather than silently dropped.
+    G.results[G.index] = 'skipped';
+    markProgress(G.pack.id);
+    // A skip does not break a day streak: it is an answer, and the streak is
+    // about turning up rather than about never saying "no word for this".
+
+    // Tell the server too: a word with no Banjara form should not come back
+    // to this contributor, and it is a finding worth keeping.
+    const wordId = currentItem().id;
+    SolarisAuth.fetch(CONFIG.serverUrl + '/api/words/skip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wordId }),
+    }).catch(() => {});
+
+
+    toast('Marked as “no Banjara word”');
+    hideSheet();
+    advance();
+  }
+
+  function advance() {
+    G.takes = { bnj: null, tel: null };
+    G.phase = 'bnj';
+    G.index++;
+    if (G.index >= G.queue.length) finish('completed');
+    else renderPrompt(true);
+  }
+
+  /** How many sessions are waiting to upload, shown on the portal. */
+  async function refreshQueue() {
+    const n = await SolarisStore.pending();
+    const note = $('portalQueue');
+    if (!note) return;
+    note.hidden = n === 0;
+    if (n) note.textContent = `${n} session(s) waiting to upload. They send automatically once the server is reachable.`;
+  }
+
+  /** A floating +XP over the record button, a ring around the avatar, and a
+   *  nudge on the level bar. Progress should be felt where it happened. */
+  function celebrateXp(xp) {
+    if (!xp) return;
+
+    const anchor = $('btnRecord').getBoundingClientRect();
+    const float = document.createElement('div');
+    float.className = 'xp-float';
+    float.textContent = `+${xp} XP`;
+    float.style.left = `${anchor.left + anchor.width / 2}px`;
+    float.style.top = `${anchor.top - 8}px`;
+    document.body.appendChild(float);
+    setTimeout(() => float.remove(), 1300);
+
+    const avatar = $('btnProfile');
+    avatar.classList.remove('pulse');
+    void avatar.offsetWidth;          // restart the animation
+    avatar.classList.add('pulse');
+
+    const fill = $('levelFill');
+    fill.classList.remove('bumped');
+    void fill.offsetWidth;
+    fill.classList.add('bumped');
+  }
+
+  // ── Finish ──────────────────────────────────────────────────────────────────
+  /**
+   * End the sitting.
+   *
+   * @param {'completed'|'quit'} how  Whether every prompt was answered, or
+   *        the contributor closed the set part-way. Leaving early is a normal
+   *        thing to do — the phone rings, the speaker has to go — and it
+   *        should not be dressed up as an achievement. The work is saved
+   *        either way; only the celebration is earned.
+   */
+  async function finish(how = 'completed') {
+    hideSheet();
+    // A toast from the last action would land on top of the completion
+    // screen's buttons.
+    hideToast();
+    releaseWakeLock();
+
+    const recorded = G.results.filter(r => r === 'recorded').length;
+    const skipped  = G.results.filter(r => r === 'skipped').length;
+    const minutes  = Math.max(1, Math.round((Date.now() - G.startedAt) / 60000));
+
+    // The log is written either way: what was recorded belongs to the archive
+    // regardless of how the sitting ended.
+    const logging = writeSessionLog(recorded, skipped);
+
+    if (how === 'quit') {
+      G.doneSince = {};
+      await loadPacks();
+      show('portal');
+      toast(recorded
+        ? `Stopped — ${recorded} word${recorded === 1 ? '' : 's'} saved`
+        : 'Stopped — nothing recorded yet');
+      await logging;
+      return;
+    }
+
+    $('statXp').textContent = G.xp;
+    $('statRecorded').textContent = `${recorded}/${G.queue.length}`;
+    $('statStreak').textContent = G.bestStreak;
+    $('statTime').textContent = `${minutes}m`;
+
+    const setName = (G.pack && G.pack.name) || 'this set';
+    const setFinished = typeof G.pack?.remaining === 'number' &&
+      G.pack.remaining - (recorded + skipped) <= 0;
+
+    $('doneTitle').textContent = setFinished
+      ? `${setName} complete!`
+      : recorded === G.queue.length ? 'Every word recorded!' : 'Batch complete';
+    $('doneSub').textContent = skipped
+      ? `${recorded} recorded, ${skipped} marked as having no Banjara word.`
+      : `${recorded} word${recorded === 1 ? '' : 's'} added to the archive.`;
+
+    G.doneSince = {};
+    loadPacks();            // re-read progress from the server
+    show('done');
+    confetti();
+    blip('good');
+    buzz([20, 60, 20, 60, 40]);
+
+    await logging;
+
+    const pending = await SolarisStore.pending();
+    const note = $('queueNote');
+    note.hidden = pending === 0;
+    if (pending) note.textContent = `${pending} session(s) waiting to upload. They will send automatically when the server is reachable.`;
+  }
+
+  /** Records the order, the skips and the timing — the parts of a session that
+   *  the audio files alone cannot show. */
+  async function writeSessionLog(recorded, skipped) {
+    const body = {
+      folder: `contributors/${G.speaker}/logs`,
+      name: `${new Date(G.startedAt).toISOString().replace(/[:.]/g, '-')}.json`,
+      log: {
+        contributor: G.speaker,
+        pack: { id: G.pack.id, name: G.pack.name },
+        withTelugu: G.withTelugu,
+        startedAt: new Date(G.startedAt).toISOString(),
+        finishedAt: new Date().toISOString(),
+        xp: G.xp,
+        totals: { prompts: G.queue.length, recorded, skipped },
+        items: G.queue.map((item, i) => ({
+          id: item.id,
+          telugu: item.te,
+          english: item.en,
+          segment: item.segment,
+          outcome: G.results[i] || 'not reached',
+        })),
+      },
+    };
+
+    try {
+      const r = await SolarisAuth.fetch(CONFIG.serverUrl + '/api/session-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      // The server folds this session into the account's lifetime totals and
+      // hands back the updated profile, so the level shown stays truthful.
+      const data = await r.json().catch(() => ({}));
+      if (data && data.profile) {
+        SolarisAuth.updateUser(data.profile);
+        $('doneSub').textContent += ` Level ${data.profile.level} · ${data.profile.stats.xp} XP total.`;
+      }
+    } catch {
+      // The per-word saves already carry the important data; the log is extra.
+    }
+  }
+
+  function confetti() {
+    const colors = ['#e4322b', '#ffc24d', '#34c77b', '#5cc8ff', '#ff6f91', '#dfe6f2'];
+    const layer = document.createElement('div');
+    layer.className = 'confetti';
+    for (let i = 0; i < 70; i++) {
+      const bit = document.createElement('span');
+      bit.style.left = Math.random() * 100 + 'vw';
+      bit.style.background = colors[i % colors.length];
+      bit.style.animationDuration = (1.9 + Math.random() * 1.5) + 's';
+      bit.style.animationDelay = (Math.random() * 0.5) + 's';
+      bit.style.transform = `rotate(${Math.random() * 360}deg)`;
+      layer.appendChild(bit);
+    }
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 4200);
+  }
+
+  function quit() {
+    if (G.isRec) stopRecording();
+    const done = G.results.filter(Boolean).length;
+    if (done > 0 && !confirm('Stop here? The words you have recorded are saved.')) return;
+    // Closing part-way returns to the portal rather than the completion
+    // screen — nothing has been completed.
+    finish('quit');
+  }
+
+  // ── Wiring ──────────────────────────────────────────────────────────────────
+  function init() {
+    SolarisStore.configure({ baseUrl: CONFIG.serverUrl });
+
+    $('btnAuthSubmit').addEventListener('click', submitAuth);
+    $('btnAuthToggle').addEventListener('click', () => {
+      authMode = authMode === 'login' ? 'register' : 'login';
+      paintAuthMode();
+    });
+    $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+    $('btnReveal').addEventListener('click', toggleReveal);
+    hideReveal();               // draws the eye; the field starts masked
+    $('btnSignOut').addEventListener('click', signOut);
+    $('btnProfile').addEventListener('click', openDrawer);
+    $('tabLearn').addEventListener('click', () => { closeDrawer(); setTab('learn'); });
+    $('tabYou').addEventListener('click', () => { setTab('you'); openDrawer(); });
+    $('btnCloseDrawer').addEventListener('click', closeDrawer);
+    $('drawerScrim').addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawerOpen) closeDrawer(); });
+
+    // Swiping the drawer to the right should dismiss it, the way a sheet does.
+    let swipeFrom = null;
+    $('drawer').addEventListener('touchstart', (e) => { swipeFrom = e.touches[0].clientX; }, { passive: true });
+    $('drawer').addEventListener('touchend', (e) => {
+      if (swipeFrom === null) return;
+      if (e.changedTouches[0].clientX - swipeFrom > 70) closeDrawer();
+      swipeFrom = null;
+    }, { passive: true });
+
+    $('btnRecord').addEventListener('click', toggleRecord);
+    $('btnSkip').addEventListener('click', skipWord);
+    $('btnSpeak').addEventListener('click', speakPrompt);
+    $('btnReplay').addEventListener('click', replayTake);
+    $('btnRetry').addEventListener('click', retryTake);
+    $('btnContinue').addEventListener('click', continueFlow);
+    $('btnQuit').addEventListener('click', quit);
+    $('btnHome').addEventListener('click', () => show('portal'));
+
+    // Voice list loads asynchronously in most browsers.
+    if ('speechSynthesis' in window) {
+      speechSynthesis.onvoiceschanged = () => {
+        if (!$('screen-play').hidden) $('btnSpeak').hidden = !hasTeluguVoice();
+      };
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && G.isRec) requestWakeLock();
+    });
+
+    window.addEventListener('online', () => { SolarisStore.flush().catch(() => {}); });
+
+    // The road is measured, so a rotation invalidates it.
+    let trailTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(trailTimer);
+      trailTimer = setTimeout(() => { if (!$('screen-portal').hidden) paintPath(); }, 180);
+    });
+
+    window.addEventListener('beforeunload', (e) => {
+      if (G.isRec || (G.index > 0 && !$('screen-play').hidden)) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    // Read-only handle for diagnosing a session from a phone with no devtools.
+    window.__solarisGame = G;
+
+    SolarisIcons.mount();
+
+    // Icons that never change, painted once.
+    $('streakIcon').innerHTML = ico('flame');
+    $('streakIconPlay').innerHTML = ico('flame');
+    $('speakIcon').innerHTML = ico('volume');
+    $('skipIcon').innerHTML = ico('ban');
+    $('recGlyph').innerHTML = ico('mic');
+    $('btnQuit').innerHTML = ico('close');
+    $('tabLearnIcon').innerHTML = ico('mic');
+    $('tabYouIcon').innerHTML = ico('user');
+    $('btnCloseDrawer').innerHTML = ico('close');
+    $('btnReplay').innerHTML = ico('play');
+    $('trophy').innerHTML = ico('award');
+
+    SolarisAuth.configure({ baseUrl: CONFIG.serverUrl });
+    checkServer();
+    decideStartScreen();     // loads the categories once there is a session
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

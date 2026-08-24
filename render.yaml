@@ -1,0 +1,23 @@
+# Deploy to Render: connect the repository and it reads this file.
+#
+# Any platform that runs a container works the same way — the only things that
+# matter are the environment variables below and that the platform terminates
+# TLS for you.
+services:
+  - type: web
+    name: solaris
+    runtime: docker
+    plan: starter          # the free plan sleeps, and a sleeping server drops a recording
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false        # set in the dashboard, never in the repository
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SOLARIS_TRUST_PROXY
+        value: "true"
+      - key: SOLARIS_TIMEZONE
+        value: Asia/Kolkata
+      # Open sign-up. Set to false, or add SOLARIS_INVITE_CODE, for a closed study.
+      - key: SOLARIS_OPEN_REGISTRATION
+        value: "true"

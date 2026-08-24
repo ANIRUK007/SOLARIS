@@ -1,0 +1,22 @@
+{
+  "name": "solaris-mobile",
+  "version": "1.0.0",
+  "description": "SOLARIS — mobile-capable paired Banjara/Telugu speech capture with on-device background-noise removal.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/dsp.test.js && node tests/wiring.test.js && node tests/words.test.js && node tests/supabase.test.js && node tests/storage.test.js && node tests/security.test.js && node tests/auth.test.js && node tests/server.test.js",
+    "certs": "node scripts/make-certs.js",
+    "test:e2e": "node tests/e2e.test.js",
+    "migrate": "node scripts/migrate-to-supabase.js",
+    "test:db": "node tests/schema.test.js",
+    "migrate:sql": "node scripts/migrate-sql.js",
+    "export": "node scripts/export-dataset.js",
+    "deploy:render": "node scripts/deploy-render.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true
+}
